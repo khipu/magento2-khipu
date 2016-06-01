@@ -21,6 +21,7 @@ use Magento\Store\Model\StoreManagerInterface;
 
 class Payment extends AbstractMethod
 {
+
     const KHIPU_MAGENTO_VERSION = '1.0.0';
     const CODE = 'khipu_merchant';
 
@@ -99,20 +100,20 @@ class Payment extends AbstractMethod
             $description[] = number_format($item->getQtyOrdered(), 0) . ' × ' . $item->getName();
         }
 
-        $configuration = new Khipu\Configuration();
+        $configuration = new \Khipu\Configuration();
         $configuration->setSecret($this->getConfigData('merchant_secret'));
         $configuration->setReceiverId($this->getConfigData('merchant_id'));
         $configuration->setPlatform('magento2-khipu', '1.0.0');
 
-
-        $client = new Khipu\ApiClient($configuration);
-        $payments = new Khipu\Client\PaymentsApi($client);
+        $client = new \Khipu\ApiClient($configuration);
+        $payments = new \Khipu\Client\PaymentsApi($client);
 
         try {
             $createPaymentResponse = $payments->paymentsPost(
                 $this->storeManager->getWebsite()->getName() . ' Carro #' . $order->getIncrementId()
-                , 'CLP'
-                , number_format($order->getGrandTotal(), 0, '.', '')
+                , $order->getOrderCurrencyCode()
+                ,
+                number_format($order->getGrandTotal(), $this->getDecimalPlaces($order->getOrderCurrencyCode()), '.', '')
                 , $payment->getAdditionalInformation('khipu_order_token')
                 , null
                 , join($description, ', ')
@@ -120,7 +121,7 @@ class Payment extends AbstractMethod
                 , $this->urlBuilder->getUrl('checkout/onepage/success')
                 , $this->urlBuilder->getUrl('checkout/onepage/failure')
                 , null
-                , ($this->urlBuilder->getUrl('khipu/payment/callback') . '?token=' . $payment->getAdditionalInformation('coingate_order_token'))
+                , ($this->urlBuilder->getUrl('khipu/payment/callback') . '?order_id=' . $order->getIncrementId())
                 , '1.3'
                 , null
                 , null
@@ -132,13 +133,18 @@ class Payment extends AbstractMethod
                 , null
             );
         } catch (\Khipu\ApiException $exception) {
-            $this->context->smarty->assign(
-                array(
-                    'error' => $exception->getResponseObject()
-                )
-            );
-            //$this->setTemplate('khipu_error.tpl');
+            $error = $exception->getResponseObject();
+            $msg = "Error de comunicación con khipu.\n";
+            $msg .= "Código: " . $error->getStatus() . "\n";
+            $msg .= "Mensaje: " . $error->getMessage() . "\n";
+            if (method_exists($error, 'getErrors')) {
+                $msg .= "Errores:";
+                foreach ($error->getErrors() as $errorItem) {
+                    $msg .= "\n" . $errorItem->getField() . ": " . $errorItem->getMessage();
+                }
+            }
             return array(
+                'reason' => $msg,
                 'status' => false
             );
         }
@@ -149,47 +155,72 @@ class Payment extends AbstractMethod
 
     }
 
+    public function getDecimalPlaces($currencyCode)
+    {
+        if ($currencyCode == 'CLP') {
+            return 0;
+        }
+        return 2;
+    }
+
     /**
      * @param Order $order
      */
     public function validateKhipuCallback(Order $order)
     {
-        /*try {
+        try {
             if (!$order || !$order->getIncrementId()) {
                 throw new \Exception('Order #' . $_REQUEST['order_id'] . ' does not exists');
             }
 
             $payment = $order->getPayment();
-            $token1 = isset($_POST['notification_token']) ? $_POST['notification_token'] : '';
-            $token2 = $payment->getAdditionalInformation('khipu_order_token');
+            $notificationToken = isset($_POST['notification_token']) ? $_POST['notification_token'] : '';
 
-            if ($token1 == '' || $token1 != $token2) {
-                throw new \Exception('Tokens do match.');
+            if ($notificationToken == '') {
+                throw new \Exception('Invalid notification token.');
+            }
+            $configuration = new \Khipu\Configuration();
+            $configuration->setSecret($this->getConfigData('merchant_secret'));
+            $configuration->setReceiverId($this->getConfigData('merchant_id'));
+            $configuration->setPlatform('magento2-khipu', '1.0.0');
+
+            $client = new \Khipu\ApiClient($configuration);
+            $payments = new \Khipu\Client\PaymentsApi($client);
+
+            try {
+                $paymentResponse = $payments->paymentsGet($notificationToken);
+            } catch (\Khipu\ApiException $exception) {
+                throw new \Exception(print_r($exception->getResponseObject(), TRUE));
             }
 
-            $this->coingate->getOrder($_REQUEST['notification_token']);
-
-            if (!$this->coingate->success) {
-                throw new \Exception('CoinGate Order #' . $_REQUEST['id'] . ' does not exist');
+            if ($paymentResponse->getReceiverId() != $this->getConfigData('merchant_id')) {
+                throw new \Exception('Invalid receiver id');
             }
 
-            if (!is_array($this->coingate->response)) {
-                throw new \Exception('Something wrong with callback');
+            if ($paymentResponse->getTransactionId() != $payment->getAdditionalInformation('khipu_order_token')) {
+                throw new \Exception('Invalid transaction id');
             }
 
-            if ($this->coingate->response['status'] == 'paid') {
-                $order
-                    ->setState(Order::STATE_PROCESSING, TRUE)
-                    ->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING))
-                    ->save();
-            } elseif (in_array($this->coingate->response['status'], array('invalid', 'expired', 'canceled'))) {
-                $order
-                    ->setState(Order::STATE_CANCELED, TRUE)
-                    ->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_CANCELED))
-                    ->save();
+            if ($paymentResponse->getStatus() != 'done') {
+                throw new \Exception('Payment not done');
             }
+
+            if ($paymentResponse->getAmount() != number_format($order->getGrandTotal(),
+                    $this->getDecimalPlaces($order->getOrderCurrencyCode()), '.', '')
+            ) {
+                throw new \Exception('Amount mismatch');
+            }
+
+            if ($paymentResponse->getCurrency() != $order->getOrderCurrencyCode()) {
+                throw new \Exception('Currency mismatch');
+            }
+            $order
+                ->setState(Order::STATE_PROCESSING, TRUE)
+                ->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING))
+                ->save();
+
         } catch (\Exception $e) {
             exit('Error occurred: ' . $e);
-        }*/
+        }
     }
 }

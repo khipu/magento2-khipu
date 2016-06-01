@@ -30,7 +30,7 @@ class Callback extends Action
      */
     public function execute()
     {
-        $order = $this->order->loadByIncrementId($_REQUEST['order_id']);
+        $order = $this->order->loadByIncrementId($_GET['order_id']);
         $this->khipuPayment->validateKhipuCallback($order);
 
         $this->getResponse()->setBody('OK');
