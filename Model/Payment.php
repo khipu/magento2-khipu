@@ -22,7 +22,7 @@ use Magento\Store\Model\StoreManagerInterface;
 class Payment extends AbstractMethod
 {
 
-    const KHIPU_MAGENTO_VERSION = '1.0.0';
+    const KHIPU_MAGENTO_VERSION = '2.0.0';
     const CODE = 'khipu_merchant';
 
     protected $_code = 'khipu_merchant';
@@ -103,7 +103,7 @@ class Payment extends AbstractMethod
         $configuration = new \Khipu\Configuration();
         $configuration->setSecret($this->getConfigData('merchant_secret'));
         $configuration->setReceiverId($this->getConfigData('merchant_id'));
-        $configuration->setPlatform('magento2-khipu', '1.0.0');
+        $configuration->setPlatform('magento2-khipu', Payment::KHIPU_MAGENTO_VERSION);
 
         $client = new \Khipu\ApiClient($configuration);
         $payments = new \Khipu\Client\PaymentsApi($client);
@@ -182,7 +182,7 @@ class Payment extends AbstractMethod
             $configuration = new \Khipu\Configuration();
             $configuration->setSecret($this->getConfigData('merchant_secret'));
             $configuration->setReceiverId($this->getConfigData('merchant_id'));
-            $configuration->setPlatform('magento2-khipu', '1.0.0');
+            $configuration->setPlatform('magento2-khipu', Payment::KHIPU_MAGENTO_VERSION);
 
             $client = new \Khipu\ApiClient($configuration);
             $payments = new \Khipu\Client\PaymentsApi($client);
