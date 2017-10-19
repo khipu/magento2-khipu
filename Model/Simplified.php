@@ -1,5 +1,5 @@
 <?php
-namespace Khipu\Merchant\Model;
+namespace Khipu\Payment\Model;
 
 use Magento\Directory\Model\CountryFactory;
 use Magento\Framework\Api\AttributeValueFactory;
@@ -19,18 +19,25 @@ use Magento\Payment\Model\Method\Logger;
 use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
 
-class Payment extends AbstractMethod
+
+class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
 
-    const KHIPU_MAGENTO_VERSION = '2.0.0';
-    const CODE = 'khipu_merchant';
-
-    protected $_code = 'khipu_merchant';
+    protected $_code = 'khipu_payment-simplified';
 
     protected $_isInitializeNeeded = true;
 
     protected $urlBuilder;
+
     protected $storeManager;
+
+    protected $_canOrder = true;
+
+    protected $_canAuthorize = true;
+
+    protected $_canUseCheckout = true;
+
+    protected $_canFetchTransactionInfo = true;
 
     /**
      * @param Context $context
@@ -103,7 +110,7 @@ class Payment extends AbstractMethod
         $configuration = new \Khipu\Configuration();
         $configuration->setSecret($this->getConfigData('merchant_secret'));
         $configuration->setReceiverId($this->getConfigData('merchant_id'));
-        $configuration->setPlatform('magento2-khipu', Payment::KHIPU_MAGENTO_VERSION);
+        $configuration->setPlatform('magento2-khipu', Simplified::KHIPU_MAGENTO_VERSION);
 
         $client = new \Khipu\ApiClient($configuration);
         $payments = new \Khipu\Client\PaymentsApi($client);
@@ -182,7 +189,7 @@ class Payment extends AbstractMethod
             $configuration = new \Khipu\Configuration();
             $configuration->setSecret($this->getConfigData('merchant_secret'));
             $configuration->setReceiverId($this->getConfigData('merchant_id'));
-            $configuration->setPlatform('magento2-khipu', Payment::KHIPU_MAGENTO_VERSION);
+            $configuration->setPlatform('magento2-khipu', Simplified::KHIPU_MAGENTO_VERSION);
 
             $client = new \Khipu\ApiClient($configuration);
             $payments = new \Khipu\Client\PaymentsApi($client);

@@ -1,7 +1,7 @@
 <?php
-namespace Khipu\Merchant\Controller\Payment;
+namespace Khipu\Payment\Controller\Payment;
 
-use Khipu\Merchant\Model\Payment as KhipuPayment;
+use Khipu\Payment\Model\Payment\Simplified as KhipuPayment;
 use Magento\Checkout\Model\Session;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;

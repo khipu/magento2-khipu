@@ -1,18 +1,13 @@
 <?xml version="1.0"?>
-<!--
-/**
-* CoinGate module dependency
-*
-* @category    CoinGate
-* @package     CoinGate_Merchant
-* @author      CoinGate
-* @copyright   CoinGate (https://coingate.com)
-* @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
-*/
--->
+
 <payment xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Payment:etc/payment.xsd">
+    <groups>
+        <group id="khipu">
+            <label>Payments processed by khipu</label>
+        </group>
+    </groups>
     <methods>
-        <method name="khipu_merchant">
+        <method name="khipu_payment-simplified">
             <allow_multiple_address>1</allow_multiple_address>
         </method>
     </methods>

@@ -1,16 +1,10 @@
 <?xml version="1.0"?>
 <!--
 /**
- * CoinGate payment method model
- *
- * @category    CoinGate
- * @package     CoinGate_Merchant
- * @author      CoinGate
- * @copyright   CoinGate (https://coingate.com)
- * @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
+ * Copyright © 2016 Magento. All rights reserved.
+ * See COPYING.txt for license details.
  */
 -->
-
 <page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" layout="1column" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
     <body>
         <referenceBlock name="checkout.root">
@@ -22,17 +16,17 @@
                                 <item name="steps" xsi:type="array">
                                     <item name="children" xsi:type="array">
                                         <item name="billing-step" xsi:type="array">
+                                            <item name="component" xsi:type="string">uiComponent</item>
                                             <item name="children" xsi:type="array">
                                                 <item name="payment" xsi:type="array">
                                                     <item name="children" xsi:type="array">
                                                         <item name="renders" xsi:type="array">
                                                             <!-- merge payment method renders here -->
                                                             <item name="children" xsi:type="array">
-                                                                <item name="khipu_merchant-payments" xsi:type="array">
-                                                                    <item name="component" xsi:type="string">Khipu_Merchant/js/view/payment/khipu-payments</item>
+                                                                <item name="khipu_simplified" xsi:type="array">
+                                                                    <item name="component" xsi:type="string">Khipu_Payment/js/view/simplified</item>
                                                                     <item name="methods" xsi:type="array">
-
-                                                                         <item name="khipu_merchant" xsi:type="array">
+                                                                        <item name="khipu_simplified" xsi:type="array">
                                                                             <item name="isBillingAddressRequired" xsi:type="boolean">true</item>
                                                                         </item>
                                                                     </item>
