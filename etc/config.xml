@@ -2,13 +2,13 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
 <default>
     <payment>
-        <khipu_payment-simplified>
+        <simplified>
             <active>1</active>
             <model>Khipu\Payment\Model\Simplified</model>
             <order_status>pending</order_status>
             <title>khipu</title>
             <payment_action>Authorization</payment_action>
-        </khipu_payment-simplified>
+        </simplified>
     </payment>
 </default>
 </config>

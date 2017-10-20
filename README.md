@@ -20,7 +20,7 @@ You can install Magento 2 khipu plugin via [Composer](http://getcomposer.org/). 
 3. Enter following commands to enable plugin:
 
     ```bash
-    php bin/magento module:enable Khipu_Merchant --clear-static-content
+    php bin/magento module:enable Khipu_Payment --clear-static-content
     php bin/magento setup:upgrade
     ```
 

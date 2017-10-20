@@ -1,7 +1,7 @@
 <?php
 namespace Khipu\Payment\Controller\Payment;
 
-use Khipu\Payment\Model\Payment\Simplified as KhipuPayment;
+use Khipu\Payment\Model\Simplified;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Sales\Model\Order;
@@ -14,7 +14,7 @@ class Callback extends Action
     public function __construct(
         Context $context,
         Order $order,
-        KhipuPayment $khipuPayment
+        Simplified $khipuPayment
     )
     {
         parent::__construct($context);
@@ -30,9 +30,15 @@ class Callback extends Action
      */
     public function execute()
     {
-        $order = $this->order->loadByIncrementId($_GET['order_id']);
-        $this->khipuPayment->validateKhipuCallback($order);
-
+        $order = $this->order->loadByIncrementId($this->getRequest()->getParam('order_id'));
+        try {
+            $this->khipuPayment->validateKhipuCallback($order, $this->getRequest()->getPost()['notification_token'],
+                $this->getRequest()->getPost()['api_version']);
+        } catch (\Exception $e) {
+            $this->getResponse()->setStatusCode(\Magento\Framework\App\Response\Http::STATUS_CODE_400);
+            $this->getResponse()->setContent($e->getMessage());
+            return;
+        }
         $this->getResponse()->setBody('OK');
     }
 }
