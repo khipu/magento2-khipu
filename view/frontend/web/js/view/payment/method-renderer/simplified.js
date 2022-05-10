@@ -20,23 +20,6 @@ define(
 									isActive: function() {
 										return true;
 									},
-									/*placeOrder: function (data, event) {
-										if (event) {
-											event.preventDefault();
-										}
-										var self = this,
-											placeOrder;
-										if (this.validate()) {
-											this.isPlaceOrderActionAllowed(false);
-											placeOrder = placeOrderAction(this.getData(), false, this.messageContainer);
-
-											$.when(placeOrder).fail(function () {
-												self.isPlaceOrderActionAllowed(true);
-											}).done(this.afterPlaceOrder.bind(this));
-											return true;
-										}
-										return false;
-									},*/
 
 									afterPlaceOrder: function (quoteId) {
 										var request = $.ajax({

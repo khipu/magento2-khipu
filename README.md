@@ -2,6 +2,8 @@
 
 khipu payment gateway Magento 2 plugin.
 
+This version is compatible with Magento 2.0, 2.1 and 2.2
+
 You can sign up for khipu account at <https://khipu.com>
 
 ## Install via Composer
