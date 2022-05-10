@@ -23,7 +23,7 @@ use Magento\Store\Model\StoreManagerInterface;
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
 
-    const KHIPU_MAGENTO_VERSION = "2.2.0";
+    const KHIPU_MAGENTO_VERSION = "2.2.1";
 
     protected $_code = 'simplified';
 
@@ -159,7 +159,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 
         return array(
             'status' => true,
-            'payment_url' => $createPaymentResponse->getPaymentUrl()
+            'payment_url' => $createPaymentResponse->getSimplifiedTransferUrl()
         );
 
 
