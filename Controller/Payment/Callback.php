@@ -5,8 +5,11 @@ use Khipu\Payment\Model\Simplified;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Sales\Model\Order;
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\Request\InvalidRequestException;
 
-class Callback extends Action
+class Callback extends Action implements CsrfAwareActionInterface
 {
     protected $order;
     protected $khipuPayment;
@@ -21,6 +24,16 @@ class Callback extends Action
 
         $this->order = $order;
         $this->khipuPayment = $khipuPayment;
+    }
+
+    public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
     }
 
     /**
