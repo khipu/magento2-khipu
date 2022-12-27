@@ -23,7 +23,7 @@ use Magento\Store\Model\StoreManagerInterface;
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
 
-    const KHIPU_MAGENTO_VERSION = "2.4.0";
+    const KHIPU_MAGENTO_VERSION = "2.4.1";
 
     protected $_code = 'simplified';
 
@@ -126,7 +126,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 
             $opts = array(
                 "transaction_id" => $order->getIncrementId(),
-                "description" => join($description, ', '),
+                "body" => join($description, ', '),
                 "custom" => $payment->getAdditionalInformation('khipu_order_token'),
                 "return_url" => $this->urlBuilder->getUrl('checkout/onepage/success'),
                 "cancel_url" => $this->urlBuilder->getUrl('checkout/onepage/failure'),

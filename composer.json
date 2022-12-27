@@ -2,7 +2,7 @@
     "name": "khipu/magento2-khipu",
     "type": "magento2-module",
     "description": "khipu integration for Magento 2",
-    "version": "2.4.0",
+    "version": "2.4.1",
     "homepage": "https://khipu.com",
     "license": [
       "OSL-3.0"
