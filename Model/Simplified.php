@@ -126,12 +126,13 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 
             $opts = array(
                 "transaction_id" => $order->getIncrementId(),
-                "body" => join($description, ', '),
+                "body" => join(', ',$description),
                 "custom" => $payment->getAdditionalInformation('khipu_order_token'),
                 "return_url" => $this->urlBuilder->getUrl('checkout/onepage/success'),
                 "cancel_url" => $this->urlBuilder->getUrl('checkout/onepage/failure'),
                 "notify_url" => ($this->urlBuilder->getUrl('khipupayment/payment/callback', array("order_id" => $order->getIncrementId()))),
-                "notify_api_version" => "1.3"
+                "notify_api_version" => "1.3",
+                "payer_email" => $order->getCustomerEmail()
             );
 
             $createPaymentResponse = $payments->paymentsPost(
@@ -222,11 +223,8 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         if ($paymentResponse->getCurrency() != $order->getOrderCurrencyCode()) {
             throw new \Exception('Currency mismatch');
         }
-        $order
-            ->setState(Order::STATE_PROCESSING, TRUE)
-            ->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING))
-            ->save();
-
-
+        $order->setState(Order::STATE_PROCESSING, TRUE);
+        $order->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING));
+        $order->save();
     }
 }
