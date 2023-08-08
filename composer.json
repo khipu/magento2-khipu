@@ -2,13 +2,13 @@
     "name": "khipu/magento2-khipu",
     "type": "magento2-module",
     "description": "khipu integration for Magento 2",
-    "version": "2.4.5",
+    "version": "2.4.1",
     "homepage": "https://khipu.com",
     "license": [
       "OSL-3.0"
     ],
     "require": {
-       "khipu/khipu-api-client": "2.9.2-php8-release"
+       "khipu/khipu-api-client": "3.0.0.x-dev"
     },
     "autoload": {
         "files": [ "registration.php" ],
