@@ -8,7 +8,7 @@
       "OSL-3.0"
     ],
     "require": {
-       "khipu/khipu-api-client": "*"
+       "khipu/khipu-api-client": "2.9.2-php8-release"
     },
     "autoload": {
         "files": [ "registration.php" ],
