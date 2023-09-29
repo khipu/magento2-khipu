@@ -225,6 +225,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         }
         $order->setState(Order::STATE_PROCESSING, TRUE);
         $order->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING));
+        $order->addStatusToHistory(Order::STATE_PROCESSING, 'Estado del pago KHIPU actualizado.');
         $order->save();
     }
 }
