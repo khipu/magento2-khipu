@@ -22,23 +22,14 @@ use Magento\Store\Model\StoreManagerInterface;
 
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
-
-    const KHIPU_MAGENTO_VERSION = "2.4.1";
-
+    const KHIPU_MAGENTO_VERSION = "2.4.7";
     protected $_code = 'simplified';
-
     protected $_isInitializeNeeded = true;
-
     protected $urlBuilder;
-
     protected $storeManager;
-
     protected $_canOrder = true;
-
     protected $_canAuthorize = true;
-
     protected $_canUseCheckout = true;
-
     protected $_canFetchTransactionInfo = true;
 
     /**
@@ -162,8 +153,6 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
             'status' => true,
             'payment_url' => $createPaymentResponse->getSimplifiedTransferUrl()
         );
-
-
     }
 
     public function getDecimalPlaces($currencyCode)
@@ -223,9 +212,23 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         if ($paymentResponse->getCurrency() != $order->getOrderCurrencyCode()) {
             throw new \Exception('Currency mismatch');
         }
+
+        $responseTxt = 'Pago Khipu Aceptado<br>';
+        $responseTxt .= 'TransactionId: ' . $paymentResponse->getTransactionId() . '<br>';
+        $responseTxt .= 'PaymentId: ' . $paymentResponse->getPaymentId() . '<br>';
+        $responseTxt .= 'Subject: ' . $paymentResponse->getSubject() . '<br>';
+        $responseTxt .= 'Amount: ' . $paymentResponse->getAmount() .' '.$paymentResponse->getCurrency() .'<br>';
+        $responseTxt .= 'Status: ' . $paymentResponse->getStatus() .' - ' . $paymentResponse->getStatusDetail() .'<br>';
+        $responseTxt .= 'Body: ' . $paymentResponse->getBody() . '<br>';
+        $responseTxt .= 'Bank: ' . $paymentResponse->getBank() . '<br>';
+        $responseTxt .= 'Bank Account Number: ' . $paymentResponse->getBankAccountNumber() . '<br>';
+        $responseTxt .= 'Payer Name: ' . $paymentResponse->getPayerName() . '<br>';
+        $responseTxt .= 'Payer Email: ' . $paymentResponse->getPayerEmail() . '<br>';
+        $responseTxt .= 'Personal Identifier: ' . $paymentResponse->getPersonalIdentifier() . '<br>';
+
         $order->setState(Order::STATE_PROCESSING, TRUE);
         $order->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING));
-        $order->addStatusToHistory(Order::STATE_PROCESSING, 'Estado del pago KHIPU actualizado.');
+        $order->addStatusToHistory(Order::STATE_PROCESSING, $responseTxt);
         $order->save();
     }
 }
