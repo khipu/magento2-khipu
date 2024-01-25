@@ -22,7 +22,7 @@ use Magento\Store\Model\StoreManagerInterface;
 
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.4.7";
+    const KHIPU_MAGENTO_VERSION = "2.4.8";
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
@@ -225,10 +225,16 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         $responseTxt .= 'Payer Name: ' . $paymentResponse->getPayerName() . '<br>';
         $responseTxt .= 'Payer Email: ' . $paymentResponse->getPayerEmail() . '<br>';
         $responseTxt .= 'Personal Identifier: ' . $paymentResponse->getPersonalIdentifier() . '<br>';
+   
+        $invoice = $order->prepareInvoice();
+        $invoice->register();
+        $invoice->save();
 
-        $order->setState(Order::STATE_PROCESSING, TRUE);
-        $order->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING));
-        $order->addStatusToHistory(Order::STATE_PROCESSING, $responseTxt);
+        $paymentCompleteStatus = $this->getConfigData('payment_complete_status');
+
+        $order->setState($paymentCompleteStatus, true);
+        $order->setStatus($order->getConfig()->getStateDefaultStatus($paymentCompleteStatus));
+        $order->addStatusToHistory($paymentCompleteStatus, $responseTxt);
         $order->save();
     }
 }
