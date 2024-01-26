@@ -1,0 +1,30 @@
+<section class="admin__page-section">
+    <div class="admin__page-section-content">
+        <?php if ($paymentInformation = $block->getData('payment_information')): ?>
+            <?php
+                $lines = preg_split('/<br\s*\/?>/i', $paymentInformation);
+                $firstLine = reset($lines);
+
+                if (strpos($firstLine, 'Pago Khipu Aceptado') !== false):
+            ?>
+                <table class="admin__table-secondary order-information-table" style="width: 50%;">
+                    <?php
+                        foreach ($lines as $line):
+                            $parts = explode(': ', trim($line));
+                            $label = isset($parts[0]) ? $parts[0] : '';
+                            $value = isset($parts[1]) ? $parts[1] : '';
+
+                            if (empty($label) && empty($value)) {
+                                continue;
+                            }
+                    ?>
+                        <tr>
+                            <th style="width: 30%;"><?php echo $label; ?></th>
+                            <td><?php echo $value; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+</section>
