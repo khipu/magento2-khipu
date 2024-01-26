@@ -22,7 +22,7 @@ use Magento\Store\Model\StoreManagerInterface;
 
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.4.8";
+    const KHIPU_MAGENTO_VERSION = "2.4.9";
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
