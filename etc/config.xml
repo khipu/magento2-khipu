@@ -5,9 +5,9 @@
         <simplified>
             <active>1</active>
             <model>Khipu\Payment\Model\Simplified</model>
-            <order_status>pending</order_status>
             <title>khipu</title>
             <payment_action>Authorization</payment_action>
+            <invoice_settings>default</invoice_settings>
         </simplified>
     </payment>
 </default>
