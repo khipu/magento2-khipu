@@ -19,14 +19,17 @@ use Magento\Payment\Model\Method\AbstractMethod;
 use Magento\Payment\Model\Method\Logger;
 use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
+use Magento\Sales\Model\Order\Email\Sender\OrderSender;
+
 
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.4.9";
+    const KHIPU_MAGENTO_VERSION = "2.4.10";
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
     protected $storeManager;
+    protected $orderSender;
     protected $_canOrder = true;
     protected $_canAuthorize = true;
     protected $_canUseCheckout = true;
@@ -60,6 +63,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         Logger $logger,
         UrlInterface $urlBuilder,
         StoreManagerInterface $storeManager,
+        OrderSender $orderSender,
         AbstractResource $resource = null,
         AbstractDb $resourceCollection = null,
         array $data = array()
@@ -80,6 +84,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 
         $this->urlBuilder = $urlBuilder;
         $this->storeManager = $storeManager;
+        $this->orderSender = $orderSender;
 
     }
 
@@ -225,16 +230,19 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         $responseTxt .= 'Payer Name: ' . $paymentResponse->getPayerName() . '<br>';
         $responseTxt .= 'Payer Email: ' . $paymentResponse->getPayerEmail() . '<br>';
         $responseTxt .= 'Personal Identifier: ' . $paymentResponse->getPersonalIdentifier() . '<br>';
-   
+
         $invoice = $order->prepareInvoice();
         $invoice->register();
         $invoice->save();
 
         $paymentCompleteStatus = $this->getConfigData('payment_complete_status');
 
-        $order->setState($paymentCompleteStatus, true);
+        $order->setState($paymentCompleteStatus, false, "Pago Realizado con Khipu", true);
         $order->setStatus($order->getConfig()->getStateDefaultStatus($paymentCompleteStatus));
+        $order->setIsCustomerNotified(true);
         $order->addStatusToHistory($paymentCompleteStatus, $responseTxt);
         $order->save();
+
+        $this->orderSender->send($order);
     }
 }
