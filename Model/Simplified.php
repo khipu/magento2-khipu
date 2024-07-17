@@ -21,7 +21,6 @@ use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 
-
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
     const KHIPU_MAGENTO_VERSION = "2.4.10";
@@ -35,24 +34,6 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
     protected $_canUseCheckout = true;
     protected $_canFetchTransactionInfo = true;
 
-    /**
-     * @param Context $context
-     * @param Registry $registry
-     * @param ExtensionAttributesFactory $extensionFactory
-     * @param AttributeValueFactory $customAttributeFactory
-     * @param Data $paymentData
-     * @param ScopeConfigInterface $scopeConfig
-     * @param Logger $logger
-     * @param UrlInterface $urlBuilder
-     * @param StoreManagerInterface $storeManager
-     * @param AbstractResource|null $resource
-     * @param AbstractDb|null $resourceCollection
-     * @param array $data
-     * @internal param ModuleListInterface $moduleList
-     * @internal param TimezoneInterface $localeDate
-     * @internal param CountryFactory $countryFactory
-     * @internal param Http $response
-     */
     public function __construct(
         Context $context,
         Registry $registry,
@@ -85,16 +66,10 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         $this->urlBuilder = $urlBuilder;
         $this->storeManager = $storeManager;
         $this->orderSender = $orderSender;
-
     }
 
-    /**
-     * @param Order $order
-     * @return array
-     */
     public function getKhipuRequest(Order $order)
     {
-
         $token = substr(md5(rand()), 0, 32);
 
         $payment = $order->getPayment();
@@ -106,58 +81,60 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
             $description[] = number_format($item->getQtyOrdered(), 0) . ' × ' . $item->getName();
         }
 
-        $configuration = new \Khipu\Configuration();
-        $configuration->setSecret($this->getConfigData('merchant_secret'));
-        $configuration->setReceiverId($this->getConfigData('merchant_id'));
-        $configuration->setPlatform('magento2-khipu', Simplified::KHIPU_MAGENTO_VERSION);
+        $apiKey = $this->getConfigData('api_key');
+        $notifyUrl = $this->urlBuilder->getUrl('khipupayment/payment/callback', array("order_id" => $order->getIncrementId()));
+        $payerEmail = $order->getCustomerEmail();
 
-        $client = new \Khipu\ApiClient($configuration);
-        $payments = new \Khipu\Client\PaymentsApi($client);
+        $paymentData = [
+            'amount' => (float)number_format($order->getGrandTotal(), $this->getDecimalPlaces($order->getOrderCurrencyCode()), '.', ''),
+            'currency' => $order->getOrderCurrencyCode(),
+            'subject' => $this->storeManager->getWebsite()->getName() . ' Carro #' . $order->getIncrementId(),
+            'transaction_id' => $order->getIncrementId(),
+            'body' => join(', ', $description),
+            'custom' => $payment->getAdditionalInformation('khipu_order_token'),
+            'return_url' => $this->urlBuilder->getUrl('checkout/onepage/success'),
+            'cancel_url' => $this->urlBuilder->getUrl('checkout/onepage/failure'),
+            'notify_url' => $notifyUrl,
+            'notify_api_version' => '3.0',
+            'payer_email' => $payerEmail
+        ];
 
-        error_log($this->getConfigData('merchant_secret'));
+        $ch = curl_init('https://payment-api.khipu.com/v3/payments');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-api-key: ' . $apiKey,
+        ]);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($paymentData));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Timeout in seconds
+        curl_setopt($ch, CURLOPT_FAILONERROR, true); // Fail on HTTP error
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Disable SSL peer verification
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // Disable SSL host verification
 
-        error_log($this->getConfigData('merchant_id'));
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
 
-        try {
-
-            $opts = array(
-                "transaction_id" => $order->getIncrementId(),
-                "body" => join(', ',$description),
-                "custom" => $payment->getAdditionalInformation('khipu_order_token'),
-                "return_url" => $this->urlBuilder->getUrl('checkout/onepage/success'),
-                "cancel_url" => $this->urlBuilder->getUrl('checkout/onepage/failure'),
-                "notify_url" => ($this->urlBuilder->getUrl('khipupayment/payment/callback', array("order_id" => $order->getIncrementId()))),
-                "notify_api_version" => "1.3",
-                "payer_email" => $order->getCustomerEmail()
-            );
-
-            $createPaymentResponse = $payments->paymentsPost(
-                $this->storeManager->getWebsite()->getName() . ' Carro #' . $order->getIncrementId()
-                , $order->getOrderCurrencyCode()
-                , number_format($order->getGrandTotal(), $this->getDecimalPlaces($order->getOrderCurrencyCode()), '.', '')
-                , $opts
-            );
-        } catch (\Khipu\ApiException $e) {
-            $error = $e->getResponseObject();
-            $msg = "Error de comunicación con khipu.\n";
-            $msg .= "Código: " . $error->getStatus() . "\n";
-            $msg .= "Mensaje: " . $error->getMessage() . "\n";
-            if (method_exists($error, 'getErrors')) {
-                $msg .= "Errores:";
-                foreach ($error->getErrors() as $errorItem) {
-                    $msg .= "\n" . $errorItem->getField() . ": " . $errorItem->getMessage();
-                }
-            }
-            return array(
-                'reason' => $msg,
-                'status' => false
-            );
+        if ($curlError) {
+            $msg = "Error de comunicación con Khipu: " . $curlError;
+            return ['reason' => $msg, 'status' => false];
         }
 
-        return array(
-            'status' => true,
-            'payment_url' => $createPaymentResponse->getSimplifiedTransferUrl()
-        );
+        $responseData = json_decode($response, true);
+        if (isset($responseData['payment_id'])) {
+            $order->setKhipuPaymentId($responseData['payment_id']);
+            $order->save();
+            return ['status' => true, 'payment_url' => $responseData['simplified_transfer_url']];
+        } else {
+            $msg = "Error de comunicación con Khipu.\n";
+            if (isset($responseData['message'])) {
+                $msg .= "Mensaje: " . $responseData['message'] . "\n";
+            }
+
+            return ['reason' => $msg, 'status' => false];
+        }
     }
 
     public function getDecimalPlaces($currencyCode)
@@ -166,83 +143,5 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
             return 0;
         }
         return 2;
-    }
-
-    /**
-     * @param Order $order
-     */
-    public function validateKhipuCallback(Order $order, $notificationToken, $apiVersion)
-    {
-        if (!$order || !$order->getIncrementId()) {
-            throw new \Exception('Order #' . $_REQUEST['order_id'] . ' does not exists');
-        }
-
-        $payment = $order->getPayment();
-
-        if ($apiVersion != '1.3') {
-            throw new \Exception('Invalid notification api version.');
-        }
-        $configuration = new \Khipu\Configuration();
-        $configuration->setSecret($this->getConfigData('merchant_secret'));
-        $configuration->setReceiverId($this->getConfigData('merchant_id'));
-        $configuration->setPlatform('magento2-khipu', Simplified::KHIPU_MAGENTO_VERSION);
-
-        $client = new \Khipu\ApiClient($configuration);
-        $payments = new \Khipu\Client\PaymentsApi($client);
-
-        try {
-            $paymentResponse = $payments->paymentsGet($notificationToken);
-        } catch (\Khipu\ApiException $exception) {
-            throw new \Exception(print_r($exception->getResponseObject(), TRUE));
-        }
-
-        if ($paymentResponse->getReceiverId() != $this->getConfigData('merchant_id')) {
-            throw new \Exception('Invalid receiver id');
-        }
-
-        if ($paymentResponse->getCustom() != $payment->getAdditionalInformation('khipu_order_token')) {
-            throw new \Exception('Invalid transaction id');
-        }
-
-        if ($paymentResponse->getStatus() != 'done') {
-            throw new \Exception('Payment not done');
-        }
-
-        if ($paymentResponse->getAmount() != number_format($order->getGrandTotal(),
-                $this->getDecimalPlaces($order->getOrderCurrencyCode()), '.', '')
-        ) {
-            throw new \Exception('Amount mismatch');
-        }
-
-        if ($paymentResponse->getCurrency() != $order->getOrderCurrencyCode()) {
-            throw new \Exception('Currency mismatch');
-        }
-
-        $responseTxt = 'Pago Khipu Aceptado<br>';
-        $responseTxt .= 'TransactionId: ' . $paymentResponse->getTransactionId() . '<br>';
-        $responseTxt .= 'PaymentId: ' . $paymentResponse->getPaymentId() . '<br>';
-        $responseTxt .= 'Subject: ' . $paymentResponse->getSubject() . '<br>';
-        $responseTxt .= 'Amount: ' . $paymentResponse->getAmount() .' '.$paymentResponse->getCurrency() .'<br>';
-        $responseTxt .= 'Status: ' . $paymentResponse->getStatus() .' - ' . $paymentResponse->getStatusDetail() .'<br>';
-        $responseTxt .= 'Body: ' . $paymentResponse->getBody() . '<br>';
-        $responseTxt .= 'Bank: ' . $paymentResponse->getBank() . '<br>';
-        $responseTxt .= 'Bank Account Number: ' . $paymentResponse->getBankAccountNumber() . '<br>';
-        $responseTxt .= 'Payer Name: ' . $paymentResponse->getPayerName() . '<br>';
-        $responseTxt .= 'Payer Email: ' . $paymentResponse->getPayerEmail() . '<br>';
-        $responseTxt .= 'Personal Identifier: ' . $paymentResponse->getPersonalIdentifier() . '<br>';
-
-        $invoice = $order->prepareInvoice();
-        $invoice->register();
-        $invoice->save();
-
-        $paymentCompleteStatus = $this->getConfigData('payment_complete_status');
-
-        $order->setState($paymentCompleteStatus, false, "Pago Realizado con Khipu", true);
-        $order->setStatus($order->getConfig()->getStateDefaultStatus($paymentCompleteStatus));
-        $order->setIsCustomerNotified(true);
-        $order->addStatusToHistory($paymentCompleteStatus, $responseTxt);
-        $order->save();
-
-        $this->orderSender->send($order);
     }
 }

@@ -15,10 +15,14 @@
                 <field id="title" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Title</label>
                 </field>
-                <field id="merchant_id" translate="label" type="text" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
+                <field id="api_key" translate="label" type="text" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label>API Key</label>
+                </field>
+                <field id="merchant_id" translate="label" type="text" sortOrder="4" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Merchant_ID</label>
                 </field>
-                <field id="merchant_secret" translate="label" type="obscure" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
+
+                <field id="merchant_secret" translate="label" type="text" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Secret</label>
                 </field>
                 <field id="payment_complete_status" translate="label" type="select" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="0">
@@ -36,5 +40,3 @@
         </section>
     </system>
 </config>
-
-
