@@ -8,4 +8,9 @@
             <argument name="orderSender" xsi:type="object">Magento\Sales\Model\Order\Email\Sender\OrderSender</argument>
         </arguments>
     </type>
+    <type name="Khipu\Payment\Controller\Payment\Callback">
+        <arguments>
+            <argument name="orderSender" xsi:type="object">Magento\Sales\Model\Order\Email\Sender\OrderSender</argument>
+        </arguments>
+    </type>
 </config>
