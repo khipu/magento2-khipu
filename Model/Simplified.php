@@ -23,7 +23,9 @@ use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 
 class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.4.10";
+    const KHIPU_MAGENTO_VERSION = "2.5.1";
+    const API_VERSION = "3.0";
+
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
@@ -105,6 +107,7 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
             'Content-Type: application/json',
             'x-api-key: ' . $apiKey,
         ]);
+        curl_setopt($ch, CURLOPT_USERAGENT, "khipu-api-php-client/" . self::API_VERSION . "|prestashop-khipu/" . self::KHIPU_MAGENTO_VERSION);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($paymentData));
         curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Timeout in seconds
