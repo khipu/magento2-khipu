@@ -2,17 +2,13 @@
 
 namespace Khipu\Payment\Model;
 
-use Magento\Directory\Model\CountryFactory;
 use Magento\Framework\Api\AttributeValueFactory;
 use Magento\Framework\Api\ExtensionAttributesFactory;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\Response\Http;
 use Magento\Framework\Data\Collection\AbstractDb;
 use Magento\Framework\Model\Context;
 use Magento\Framework\Model\ResourceModel\AbstractResource;
-use Magento\Framework\Module\ModuleListInterface;
 use Magento\Framework\Registry;
-use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
 use Magento\Framework\UrlInterface;
 use Magento\Payment\Helper\Data;
 use Magento\Payment\Model\Method\AbstractMethod;
@@ -21,9 +17,9 @@ use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 
-class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
+class Simplified extends AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.5.1";
+    const KHIPU_MAGENTO_VERSION = "2.5.2";
     const API_VERSION = "3.0";
 
     protected $_code = 'simplified';
@@ -116,7 +112,6 @@ class Simplified extends \Magento\Payment\Model\Method\AbstractMethod
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // Disable SSL host verification
 
         $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
         curl_close($ch);
 
