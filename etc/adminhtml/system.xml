@@ -36,6 +36,10 @@
                 <field id="sort_order" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Sort Order</label>
                 </field>
+                <field id="wallet_balance" translate="label" sortOrder="120" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label></label>
+                    <frontend_model>Khipu\Payment\Block\Adminhtml\System\Config\WalletBalance</frontend_model>
+                </field>
             </group>
         </section>
     </system>
