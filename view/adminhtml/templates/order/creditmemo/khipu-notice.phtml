@@ -1,0 +1,68 @@
+<?php
+/** @var \Khipu\Payment\Block\Adminhtml\Order\Creditmemo\KhipuNotice $block */
+/** @var \Magento\Framework\Escaper $escaper */
+if (!$block->isKhipuOrder()) {
+    return;
+}
+?>
+<div class="messages" style="margin-bottom:15px">
+    <?php if ($block->hasOnlineRefund()): ?>
+        <div class="message message-warning">
+            <?= $escaper->escapeHtml(__('Este pedido se pagó con Khipu.')) ?>
+            <strong><?= $escaper->escapeHtml(__('"Refund Offline" NO reversa el pago')) ?></strong>
+            <?= $escaper->escapeHtml(__('— solo lo registra en Magento, y el pagador no recibe nada. '
+                . 'Para reversar de verdad, usa "Refund".')) ?>
+        </div>
+    <?php else: ?>
+        <div class="message message-warning">
+            <?= $escaper->escapeHtml(__('Este pedido se pagó con Khipu, pero en esta pantalla solo está disponible '
+                . '"Refund Offline", que NO reversa el pago — solo lo registra en Magento, '
+                . 'y el pagador no recibe nada.')) ?>
+            <br>
+            <?= $escaper->escapeHtml(__('Para reversar el pago, entra por la factura del pedido:')) ?>
+            <a href="<?= $escaper->escapeUrl($block->getInvoicesUrl()) ?>">
+                <?= $escaper->escapeHtml(__('ver facturas')) ?></a>
+            <?= $escaper->escapeHtml(__('y usa el botón "Credit Memo" desde ahí.')) ?>
+        </div>
+    <?php endif; ?>
+</div>
+
+<script>
+require(['jquery', 'prototype'], function ($) {
+    'use strict';
+    // submitCreditMemoOffline() es global y la invocan AMBOS botones offline
+    // del core (hay dos ramas en Items::_prepareLayout que llaman a la misma
+    // función). Envolverla cubre los dos caminos y sobrevive a cambios de
+    // maquetación, a diferencia de enganchar un id de botón.
+    var reintentos = 0;
+    var envolver = function () {
+        if (typeof window.submitCreditMemoOffline !== 'function') {
+            if (++reintentos < 50) { setTimeout(envolver, 100); }
+            return;
+        }
+        if (window.submitCreditMemoOffline.khipuEnvuelta) { return; }
+
+        var original = window.submitCreditMemoOffline;
+        window.submitCreditMemoOffline = function () {
+            var ok = window.confirm(
+                <?= /* @noEscape */ json_encode(
+                    __('Vas a registrar el reembolso en Magento SIN reversar el pago: el pagador no va a recibir nada.')
+                    . "\n\n"
+                    . __('Si quieres reversar el pago de verdad, cancela y usa "Refund".')
+                    . "\n\n"
+                    . __('¿Continuar de todas formas?')
+                ) ?>
+            );
+            if (!ok) {
+                // El core ya deshabilitó los botones en el onclick; hay que
+                // devolverlos a la vida o el admin queda sin poder hacer nada.
+                $('.submit-button').prop('disabled', false).removeClass('disabled');
+                return false;
+            }
+            return original.apply(this, arguments);
+        };
+        window.submitCreditMemoOffline.khipuEnvuelta = true;
+    };
+    envolver();
+});
+</script>

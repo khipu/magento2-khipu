@@ -2,6 +2,7 @@
 namespace Khipu\Payment\Controller\Payment;
 
 use Khipu\Payment\Model\Simplified;
+use Khipu\Payment\Model\Refund\CaptureRegistrar;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Sales\Model\Order;
@@ -19,6 +20,7 @@ class Callback extends Action implements CsrfAwareActionInterface
     protected $resultJsonFactory;
     protected $scopeConfig;
     protected $orderSender;
+    protected $captureRegistrar;
 
     public function __construct(
         Context $context,
@@ -26,7 +28,8 @@ class Callback extends Action implements CsrfAwareActionInterface
         Simplified $khipuPayment,
         JsonFactory $resultJsonFactory,
         ScopeConfigInterface $scopeConfig,
-        OrderSender $orderSender
+        OrderSender $orderSender,
+        CaptureRegistrar $captureRegistrar
     )
     {
         parent::__construct($context);
@@ -35,6 +38,7 @@ class Callback extends Action implements CsrfAwareActionInterface
         $this->resultJsonFactory = $resultJsonFactory;
         $this->scopeConfig = $scopeConfig;
         $this->orderSender = $orderSender;
+        $this->captureRegistrar = $captureRegistrar;
     }
 
     public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
@@ -148,9 +152,19 @@ class Callback extends Action implements CsrfAwareActionInterface
         $responseTxt .= 'Payer Email: ' . $notificationData['payer_email'] . '<br>';
         $responseTxt .= 'Personal Identifier: ' . $notificationData['personal_identifier'] . '<br>';
 
+        $payment = $order->getPayment();
         $invoice = $order->prepareInvoice();
+
+        $this->captureRegistrar->register(
+            $payment,
+            $invoice,
+            $notificationData['payment_id'],
+            $notificationData
+        );
+
         $invoice->register();
         $invoice->save();
+        $payment->save();
 
         $paymentCompleteStatus = $this->scopeConfig->getValue('payment/simplified/payment_complete_status');
 

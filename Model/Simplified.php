@@ -16,21 +16,41 @@ use Magento\Payment\Model\Method\Logger;
 use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
+use Khipu\Payment\Model\Refund\ErrorTranslator;
+use Khipu\Payment\Model\Refund\NoticeBuilder;
+use Khipu\Payment\Model\Refund\RefundException;
+use Khipu\Payment\Model\Refund\Service as RefundService;
+use Magento\Framework\Message\ManagerInterface;
+use Psr\Log\LoggerInterface;
 
 class Simplified extends AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.5.2";
+    const KHIPU_MAGENTO_VERSION = "2.6.0";
     const API_VERSION = "3.0";
+
+    /**
+     * Tolerancia al comparar el monto que Khipu dice haber reversado contra el
+     * que se pidió. Media unidad de la moneda con más decimales que se maneja
+     * (CLF, 4), para absorber la representación decimal y nada más.
+     */
+    const TOLERANCIA_MONTO = 0.00005;
 
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
     protected $storeManager;
     protected $orderSender;
+    protected $refundService;
+    protected $errorTranslator;
+    protected $khipuLogger;
+    protected $noticeBuilder;
+    protected $messageManager;
     protected $_canOrder = true;
     protected $_canAuthorize = true;
     protected $_canUseCheckout = true;
     protected $_canFetchTransactionInfo = true;
+    protected $_canRefund = true;
+    protected $_canRefundInvoicePartial = true;
 
     public function __construct(
         Context $context,
@@ -43,6 +63,11 @@ class Simplified extends AbstractMethod
         UrlInterface $urlBuilder,
         StoreManagerInterface $storeManager,
         OrderSender $orderSender,
+        RefundService $refundService,
+        ErrorTranslator $errorTranslator,
+        LoggerInterface $khipuLogger,
+        NoticeBuilder $noticeBuilder,
+        ManagerInterface $messageManager,
         AbstractResource $resource = null,
         AbstractDb $resourceCollection = null,
         array $data = array()
@@ -64,6 +89,11 @@ class Simplified extends AbstractMethod
         $this->urlBuilder = $urlBuilder;
         $this->storeManager = $storeManager;
         $this->orderSender = $orderSender;
+        $this->refundService = $refundService;
+        $this->errorTranslator = $errorTranslator;
+        $this->khipuLogger = $khipuLogger;
+        $this->noticeBuilder = $noticeBuilder;
+        $this->messageManager = $messageManager;
     }
 
     public function getKhipuRequest(Order $order)
@@ -103,7 +133,7 @@ class Simplified extends AbstractMethod
             'Content-Type: application/json',
             'x-api-key: ' . $apiKey,
         ]);
-        curl_setopt($ch, CURLOPT_USERAGENT, "khipu-api-php-client/" . self::API_VERSION . "|prestashop-khipu/" . self::KHIPU_MAGENTO_VERSION);
+        curl_setopt($ch, CURLOPT_USERAGENT, "khipu-api-php-client/" . self::API_VERSION . "|magento2-khipu/" . self::KHIPU_MAGENTO_VERSION);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($paymentData));
         curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Timeout in seconds
@@ -135,11 +165,206 @@ class Simplified extends AbstractMethod
         }
     }
 
+    /**
+     * Decimales según la moneda. Khipu devuelve los montos con 4 decimales fijos,
+     * pero el monto que se le manda debe respetar los de la moneda.
+     */
     public function getDecimalPlaces($currencyCode)
     {
-        if ($currencyCode == 'CLP') {
+        if (in_array($currencyCode, ['CLP', 'COP'], true)) {
             return 0;
         }
+        if ($currencyCode === 'CLF') {
+            return 4;
+        }
         return 2;
+    }
+
+    /**
+     * Reversa el monto del credit memo contra Khipu.
+     *
+     * Si lanza LocalizedException, Magento aborta la transacción completa del
+     * credit memo: no se crea el asiento, no cambia el estado del pedido, no se
+     * muta nada. Ese rollback es justamente lo que queremos ante una reversa
+     * fallida — y también es la razón de que el error crudo vaya al log y no a una
+     * nota del pedido: la nota se perdería con el rollback.
+     *
+     * Contrapartida: ese mismo rollback NO puede deshacer lo que ya pasó en
+     * Khipu. Khipu no participa de la transacción de BD, y las tres operaciones
+     * que Magento hace después de nuestro refund() (guardar el credit memo,
+     * guardar el pedido, commit) pueden fallar. Si fallan, el rollback se lleva
+     * el credit memo, la nota y la fila de sales_payment_transaction — los
+     * cuatro únicos lugares donde quedaba constancia de la reversa. Por eso, en
+     * cuanto Khipu responde éxito, se escribe una línea en var/log/khipu.log:
+     * Monolog escribe a disco, fuera de la transacción de BD, así que sobrevive
+     * al rollback. No hace la operación atómica — es imposible — pero garantiza
+     * que nunca se reversen $X sin que quede registro de que se reversaron $X.
+     */
+    public function refund(\Magento\Payment\Model\InfoInterface $payment, $amount)
+    {
+        $order = $payment->getOrder();
+        $creditmemo = $payment->getCreditmemo();
+
+        $khipuPaymentId = $payment->getAdditionalInformation('khipu_payment_id')
+            ?: $payment->getLastTransId();
+
+        if (!$khipuPaymentId) {
+            throw new \Magento\Framework\Exception\LocalizedException(
+                __('Este pedido no tiene un pago de Khipu asociado, así que no se puede '
+                . 'reversar desde Magento. Los pedidos pagados antes de esta versión del '
+                . 'plugin no registraron ese dato.')
+            );
+        }
+
+        if ($creditmemo === null) {
+            throw new \Magento\Framework\Exception\LocalizedException(
+                __('No se pudo determinar el monto a reversar.')
+            );
+        }
+
+        // Magento pasa $amount en moneda BASE, pero el pago se creó en Khipu con la
+        // moneda del pedido. Si difieren, el monto base reversaría de más o de menos.
+        $currency = $order->getOrderCurrencyCode();
+        $montoStr = number_format(
+            (float) $creditmemo->getGrandTotal(),
+            $this->getDecimalPlaces($currency),
+            '.',
+            ''
+        );
+
+        try {
+            $resultado = $this->refundService->refund($khipuPaymentId, 'partial', $montoStr);
+        } catch (RefundException $e) {
+            $this->khipuLogger->error('Reversa Khipu falló', [
+                'payment_id' => $khipuPaymentId,
+                'order' => $order->getIncrementId(),
+                'amount' => $montoStr,
+                'currency' => $currency,
+                'http_code' => $e->getHttpCode(),
+                'raw_body' => $e->getRawBody(),
+            ]);
+
+            throw new \Magento\Framework\Exception\LocalizedException(
+                __($this->errorTranslator->toAdminMessage($e))
+            );
+        }
+
+        // PRIMERO el log, ANTES de tocar nada de Magento: ver el docblock. Este
+        // registro es lo único que sobrevive a un rollback posterior.
+        $this->khipuLogger->info('Reversa Khipu aceptada por Khipu', [
+            'payment_id' => $khipuPaymentId,
+            'refund_id' => $resultado->id,
+            'order' => $order->getIncrementId(),
+            'amount' => $montoStr,
+            'currency' => $currency,
+            'remaining' => $resultado->remaining,
+        ]);
+
+        $this->verificarRespuesta($resultado, $khipuPaymentId, $montoStr, $order->getIncrementId(), $currency);
+
+        // La reversa de Khipu queda como la transacción de refund de Magento: su
+        // txn_id es el UUID de la reversa. Como la API no permite consultar
+        // reversas después, esta fila es el registro permanente.
+        $payment->setTransactionId($resultado->id);
+        $payment->setTransactionAdditionalInfo('khipu_refund', (array) $resultado);
+
+        $order->addCommentToStatusHistory(
+            $this->noticeBuilder->orderNote($resultado, $currency)
+        );
+
+        // La plata ya se movió: si no se puede consultar el saldo, no se hace fallar
+        // la reversa ni se revierte el credit memo. Se asume el aviso verde.
+        $saldo = null;
+        $urlRecarga = null;
+        try {
+            $billetera = $this->refundService->getWalletBalance();
+            $saldo = isset($billetera->balance) ? (float) $billetera->balance : null;
+            $urlRecarga = $billetera->add_funds_url ?? null;
+        } catch (RefundException $e) {
+            $this->khipuLogger->warning('No se pudo consultar el saldo de la billetera', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $aviso = $this->noticeBuilder->successMessage($resultado, $saldo);
+
+        if ($aviso['tipo'] === 'warning') {
+            // addWarningMessage() escapa el HTML del mensaje (el renderer por
+            // defecto de Magento es EscapeRenderer, sin allowed tags), así que un
+            // <a href> saldría como texto literal y rompería justo el camino
+            // amarillo. La URL va en texto plano, y como argumento de la Phrase
+            // para que un '%' en el querystring no se interprete como placeholder.
+            if ($urlRecarga) {
+                $this->messageManager->addWarningMessage(
+                    __('%1 Recárgala en: %2', $aviso['texto'], (string) $urlRecarga)
+                );
+            } else {
+                $this->messageManager->addWarningMessage(__($aviso['texto']));
+            }
+        } else {
+            $this->messageManager->addSuccessMessage(__($aviso['texto']));
+        }
+
+        return $this;
+    }
+
+    /**
+     * Contrasta lo que Khipu dice haber hecho contra lo que se le pidió.
+     *
+     * Un 200 bien formado todavía puede corresponder a otro pago, o reversar un
+     * monto distinto del solicitado. Magento crea el credit memo por el monto
+     * completo sin mirar la respuesta, así que el pedido quedaría diciendo que
+     * devolvió más de lo que devolvió. Ante un desajuste se lanza: el rollback
+     * deja el pedido sin credit memo, que es la conducta correcta para un estado
+     * que no se entiende. La plata que se haya movido ya quedó en el log.
+     *
+     * @throws \Magento\Framework\Exception\LocalizedException
+     */
+    private function verificarRespuesta(
+        \stdClass $resultado,
+        string $khipuPaymentId,
+        string $montoStr,
+        $incrementId,
+        string $currency
+    ) {
+        $desajuste = null;
+
+        if ((string) $resultado->payment_id !== (string) $khipuPaymentId) {
+            $desajuste = sprintf(
+                'la respuesta corresponde al pago %s y se pidió reversar el pago %s',
+                (string) $resultado->payment_id,
+                $khipuPaymentId
+            );
+        } elseif (abs((float) $resultado->refunded_amount - (float) $montoStr) > self::TOLERANCIA_MONTO) {
+            $desajuste = sprintf(
+                'se pidió reversar %s %s y Khipu informa %s',
+                $montoStr,
+                $currency,
+                (string) $resultado->refunded_amount
+            );
+        }
+
+        if ($desajuste === null) {
+            return;
+        }
+
+        $this->khipuLogger->error('La respuesta de reversa de Khipu no calza con lo solicitado', [
+            'payment_id' => $khipuPaymentId,
+            'refund_id' => $resultado->id,
+            'order' => $incrementId,
+            'amount' => $montoStr,
+            'currency' => $currency,
+            'respuesta' => (array) $resultado,
+            'desajuste' => $desajuste,
+        ]);
+
+        throw new \Magento\Framework\Exception\LocalizedException(
+            __(
+                'Khipu respondió algo distinto de lo que se le pidió (%1). No se creó el '
+                . 'credit memo. Revisa var/log/khipu.log y el estado del pago en Khipu '
+                . 'antes de reintentar.',
+                $desajuste
+            )
+        );
     }
 }

@@ -3,14 +3,43 @@
     <type name="Magento\Framework\App\Request\CsrfValidator">
         <plugin name="csrf_validator_skip" type="Khipu\Payment\Model\CsrfValidatorSkip" />
     </type>
-    <type name="Khipu\Payment\Model\Simplified">
+    <type name="Khipu\Payment\Controller\Payment\Callback">
         <arguments>
             <argument name="orderSender" xsi:type="object">Magento\Sales\Model\Order\Email\Sender\OrderSender</argument>
         </arguments>
     </type>
-    <type name="Khipu\Payment\Controller\Payment\Callback">
+    <type name="Khipu\Payment\Model\Refund\Service">
+        <arguments>
+            <!--
+                shared="false": Curl::setHeaders() reemplaza y PERSISTE en la
+                instancia. Con el singleton compartido, cualquier otro consumidor
+                que llame ->get()/->post() sin setear sus propios headers en el
+                mismo request mandaría la x-api-key de Khipu a su host.
+            -->
+            <argument name="http" xsi:type="object" shared="false">Magento\Framework\HTTP\Client\Curl</argument>
+        </arguments>
+    </type>
+    <virtualType name="KhipuPaymentLogHandler" type="Magento\Framework\Logger\Handler\Base">
+        <arguments>
+            <argument name="fileName" xsi:type="string">/var/log/khipu.log</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="KhipuPaymentLogger" type="Magento\Framework\Logger\Monolog">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="khipu" xsi:type="object">KhipuPaymentLogHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <!--
+        UN SOLO <type> para Simplified. Mapper\Dom::convert() asigna por nombre
+        de tipo, no mergea nodos hermanos del mismo archivo: dos bloques hacen
+        que el segundo descarte los argumentos del primero, en silencio.
+    -->
+    <type name="Khipu\Payment\Model\Simplified">
         <arguments>
             <argument name="orderSender" xsi:type="object">Magento\Sales\Model\Order\Email\Sender\OrderSender</argument>
+            <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
         </arguments>
     </type>
 </config>
