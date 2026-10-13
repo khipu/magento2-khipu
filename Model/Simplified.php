@@ -25,7 +25,7 @@ use Psr\Log\LoggerInterface;
 
 class Simplified extends AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.6.0";
+    const KHIPU_MAGENTO_VERSION = "2.6.1";
     const API_VERSION = "3.0";
 
     /**
@@ -154,13 +154,19 @@ class Simplified extends AbstractMethod
         if (isset($responseData['payment_id'])) {
             $order->setKhipuPaymentId($responseData['payment_id']);
             $order->save();
-            return ['status' => true, 'payment_url' => $responseData['simplified_transfer_url']];
+            $paymentUrl = $responseData['payment_url']
+                ?? $responseData['simplified_transfer_url']
+                ?? $responseData['transfer_url']
+                ?? null;
+            if ($paymentUrl) {
+                return ['status' => true, 'payment_url' => $paymentUrl];
+            }
+            return ['reason' => 'Khipu no devolvió una URL de pago.', 'status' => false];
         } else {
             $msg = "Error de comunicación con Khipu.\n";
             if (isset($responseData['message'])) {
                 $msg .= "Mensaje: " . $responseData['message'] . "\n";
             }
-
             return ['reason' => $msg, 'status' => false];
         }
     }
