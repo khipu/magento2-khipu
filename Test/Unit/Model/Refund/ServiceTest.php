@@ -147,7 +147,6 @@ class ServiceTest extends TestCase
         }
     }
 
-
     public function testExcepcionDeRedSeTraduceAHttpCodeCero(): void
     {
         $this->http->method('post')->willThrowException(new \Exception('Connection timed out'));
@@ -250,12 +249,116 @@ class ServiceTest extends TestCase
         $this->service->getWalletBalance();
     }
 
+    // ------------------------------------------------------------------
+    // deletePayment()
+    // ------------------------------------------------------------------
 
+    public function testDeletePaymentMandaUnDeleteAlEndpointDelPago(): void
+    {
+        $opciones = [];
+        $this->http->method('setOption')->willReturnCallback(
+            static function ($nombre, $valor) use (&$opciones): void {
+                $opciones[$nombre] = $valor;
+            }
+        );
+        $this->http->expects($this->once())
+            ->method('get')
+            ->with('https://payment-api.khipu.com/v3/payments/bdrxk4mn9wqz')
+            ->willReturnCallback(function () use (&$opciones): void {
+                $this->assertSame('DELETE', $opciones[CURLOPT_CUSTOMREQUEST] ?? null);
+            });
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"message":"Pago eliminado"}');
 
-    // --- I-12: creación del cobro por el cliente compartido ---
+        $this->service->deletePayment('bdrxk4mn9wqz');
+    }
 
+    public function testDeletePaymentLimpiaLaOpcionDeMetodoAunqueFalle(): void
+    {
+        $this->http->method('get')->willThrowException(new \Exception('Connection timed out'));
+        $this->http->expects($this->once())->method('setOptions')->with([]);
 
+        $this->expectException(RefundException::class);
 
+        $this->service->deletePayment('bdrxk4mn9wqz');
+    }
 
+    public function testDeletePaymentAceptaRespuesta204SinCuerpo(): void
+    {
+        $this->http->method('getStatus')->willReturn(204);
+        $this->http->method('getBody')->willReturn('');
 
+        $this->service->deletePayment('bdrxk4mn9wqz');
+        $this->addToAssertionCount(1);
+    }
+
+    public function testDeletePaymentAcepta200SinCuerpo(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('');
+
+        $this->service->deletePayment('bdrxk4mn9wqz');
+        $this->addToAssertionCount(1);
+    }
+
+    public function testDeletePaymentConPagoInexistenteLanzaConCodigo404(): void
+    {
+        $this->http->method('getStatus')->willReturn(404);
+        $this->http->method('getBody')->willReturn('{"message":"Not found"}');
+
+        try {
+            $this->service->deletePayment('bdrxk4mn9wqz');
+            $this->fail('Se esperaba una RefundException');
+        } catch (RefundException $e) {
+            $this->assertSame(404, $e->getHttpCode());
+        }
+    }
+
+    public function testDeletePaymentConPagoYaPagadoLanzaConElCodigoDeKhipu(): void
+    {
+        $this->http->method('getStatus')->willReturn(400);
+        $this->http->method('getBody')->willReturn('{"message":"El pago no se puede eliminar"}');
+
+        try {
+            $this->service->deletePayment('bdrxk4mn9wqz');
+            $this->fail('Se esperaba una RefundException');
+        } catch (RefundException $e) {
+            $this->assertSame(400, $e->getHttpCode());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // getPaymentMethodIds()
+    // ------------------------------------------------------------------
+
+    public function testGetPaymentMethodIdsDevuelveLosIdsDeLaCuenta(): void
+    {
+        $this->http->expects($this->once())
+            ->method('get')
+            ->with('https://payment-api.khipu.com/v3/merchants/505127/paymentMethods');
+        $this->http->expects($this->once())->method('setTimeout')->with(5);
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn((string) json_encode([
+            'paymentMethods' => [
+                ['id' => 'LIGOPAY', 'name' => 'LIGOPAY', 'logo_url' => ''],
+                ['id' => 'SIMPLIFIED_TRANSFER', 'name' => 'SIMPLIFIED_TRANSFER', 'logo_url' => ''],
+            ],
+        ]));
+
+        $this->assertSame(
+            ['LIGOPAY', 'SIMPLIFIED_TRANSFER'],
+            $this->service->getPaymentMethodIds('505127', 5)
+        );
+    }
+
+    public function testGetPaymentMethodIdsSinElCampoEsError(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"message":"ok"}');
+
+        $this->expectException(RefundException::class);
+        $this->expectExceptionMessage('paymentMethods');
+
+        $this->service->getPaymentMethodIds('505127', 5);
+    }
 }

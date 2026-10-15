@@ -25,6 +25,10 @@
                 <field id="merchant_secret" translate="label" type="text" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Secret</label>
                 </field>
+                <field id="embedded_payment" translate="label" type="select" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label>Pago embebido</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
                 <field id="payment_complete_status" translate="label" type="select" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Estado del pago Exitoso</label>
                     <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>

@@ -81,7 +81,46 @@ class Service
         return $respuesta;
     }
 
+    /**
+     * DELETE /v3/payments/{id}
+     *
+     * Khipu solo borra cobros pendientes. Cualquier respuesta fuera de 2xx se
+     * lanza con su código HTTP: el llamador distingue un 404 (el cobro ya no
+     * existe) de una negativa (el cobro ya está pagado o en verificación).
+     *
+     * @throws RefundException
+     */
+    public function deletePayment(string $paymentId): void
+    {
+        $this->request('DELETE', '/v3/payments/' . rawurlencode($paymentId));
+    }
 
+    /**
+     * GET /v3/merchants/{id}/paymentMethods
+     *
+     * @return string[] ids de los medios habilitados, por ejemplo SIMPLIFIED_TRANSFER.
+     * @throws RefundException
+     */
+    public function getPaymentMethodIds(string $merchantId, int $timeout): array
+    {
+        $respuesta = $this->request(
+            'GET',
+            '/v3/merchants/' . rawurlencode($merchantId) . '/paymentMethods',
+            null,
+            ['timeout' => $timeout]
+        );
+
+        $this->exigirCampos($respuesta, ['paymentMethods'], 'GET /v3/merchants/{id}/paymentMethods');
+
+        $ids = [];
+        foreach ((array) $respuesta->paymentMethods as $metodo) {
+            if (isset($metodo->id)) {
+                $ids[] = (string) $metodo->id;
+            }
+        }
+
+        return $ids;
+    }
 
     /**
      * `json_encode()` devuelve `false` (no `null`) cuando el arreglo trae bytes que
@@ -110,7 +149,7 @@ class Service
      * @param array{api_key?:?string,user_agent?:?string,timeout?:int} $opciones
      * @throws RefundException
      */
-    private function request(string $method, string $path, ?string $body = null): \stdClass
+    private function request(string $method, string $path, ?string $body = null, array $opciones = []): \stdClass
     {
         $apiKey = (string) $this->scopeConfig->getValue(self::API_KEY_PATH);
 
@@ -128,17 +167,33 @@ class Service
         try {
             if ($method === 'POST') {
                 $this->http->post(self::BASE_URL . $path, $body);
+            } elseif ($method === 'DELETE') {
+                // El cliente de Magento no tiene delete(): se fuerza el método sobre
+                // un GET. Las opciones persisten en la instancia, así que se limpian
+                // en el finally para que la siguiente llamada no salga como DELETE.
+                $this->http->setOption(CURLOPT_CUSTOMREQUEST, 'DELETE');
+                $this->http->get(self::BASE_URL . $path);
             } else {
                 $this->http->get(self::BASE_URL . $path);
             }
         } catch (\Exception $e) {
             // Sin respuesta HTTP: red, DNS o timeout.
             throw new RefundException($e->getMessage(), 0);
+        } finally {
+            if ($method === 'DELETE') {
+                $this->http->setOptions([]);
+            }
         }
 
         $status = (int) $this->http->getStatus();
         $raw = (string) $this->http->getBody();
         $decoded = json_decode($raw);
+
+        // Khipu puede responder el DELETE con 204 o con 200 sin cuerpo: para ese
+        // método cualquier 2xx es éxito y el cuerpo es opcional.
+        if ($method === 'DELETE' && $status >= 200 && $status < 300) {
+            return $decoded instanceof \stdClass ? $decoded : new \stdClass();
+        }
 
         if ($status === 200) {
             if (!$decoded instanceof \stdClass) {

@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 namespace Khipu\Payment\Test\Unit\Model;
 
+use Khipu\Payment\Model\PaymentMethods;
 use Khipu\Payment\Model\Refund\ErrorTranslator;
 use Khipu\Payment\Model\Refund\NoticeBuilder;
 use Khipu\Payment\Model\Refund\RefundException;
 use Khipu\Payment\Model\Refund\Service as RefundService;
 use Khipu\Payment\Model\Simplified;
+use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Sales\Model\Order;
@@ -24,6 +26,7 @@ class SimplifiedTest extends TestCase
     private RefundService&MockObject $refundService;
     private LoggerInterface&MockObject $khipuLogger;
     private ManagerInterface&MockObject $messageManager;
+    private PaymentMethods&MockObject $paymentMethods;
 
     protected function setUp(): void
     {
@@ -40,6 +43,8 @@ class SimplifiedTest extends TestCase
         $this->inyectar('noticeBuilder', new NoticeBuilder());
         $this->inyectar('khipuLogger', $this->khipuLogger);
         $this->inyectar('messageManager', $this->messageManager);
+        $this->paymentMethods = $this->createMock(PaymentMethods::class);
+        $this->inyectar('paymentMethods', $this->paymentMethods);
     }
 
     private function inyectar(string $propiedad, $valor): void
@@ -439,5 +444,121 @@ class SimplifiedTest extends TestCase
         $this->messageManager->expects($this->once())->method('addSuccessMessage');
 
         $this->method->refund($payment, 205.0);
+    }
+
+    // ------------------------------------------------------------------
+    // Pago embebido: modo y respuesta de getKhipuRequest()
+    // ------------------------------------------------------------------
+
+    private function toggleEmbebido(?string $valor): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(
+            static fn($path) => $path === 'payment/simplified/embedded_payment' ? $valor : null
+        );
+        $this->inyectar('_scopeConfig', $scopeConfig);
+    }
+
+    public function testToggleApagadoRedirigeSinConsultarMedios(): void
+    {
+        $this->toggleEmbebido('0');
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
+    }
+
+    public function testToggleSinConfigurarRedirige(): void
+    {
+        $this->toggleEmbebido(null);
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
+    }
+
+    public function testToggleEncendidoConTransferenciaSimplificadaEsEmbebido(): void
+    {
+        $this->toggleEmbebido('1');
+        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(true);
+
+        $this->assertSame(Simplified::MODE_EMBEDDED, $this->method->resolveMode());
+    }
+
+    public function testToggleEncendidoSinTransferenciaSimplificadaRedirige(): void
+    {
+        $this->toggleEmbebido('1');
+        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(false);
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
+    }
+
+    /**
+     * @return array{0: Order&MockObject, 1: Payment&MockObject}
+     */
+    private function ordenConPago(): array
+    {
+        $payment = $this->createMock(Payment::class);
+        $order = $this->createMock(Order::class);
+        $order->method('getPayment')->willReturn($payment);
+
+        return [$order, $payment];
+    }
+
+    public function testBuildPaymentResponseGuardaElIdDelPagoYDevuelveElModo(): void
+    {
+        $this->toggleEmbebido('1');
+        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(true);
+        [$order, $payment] = $this->ordenConPago();
+
+        $payment->expects($this->once())
+            ->method('setAdditionalInformation')
+            ->with('khipu_payment_id', 'cqnt0m9cj1io');
+        $payment->expects($this->once())->method('save');
+
+        $respuesta = $this->method->buildPaymentResponse($order, [
+            'payment_id' => 'cqnt0m9cj1io',
+            'payment_url' => 'https://khipu.com/payment/info/cqnt0m9cj1io',
+            'simplified_transfer_url' => 'https://app.khipu.com/payment/simplified/cqnt0m9cj1io',
+        ]);
+
+        $this->assertSame([
+            'status' => true,
+            'payment_url' => 'https://khipu.com/payment/info/cqnt0m9cj1io',
+            'payment_id' => 'cqnt0m9cj1io',
+            'mode' => Simplified::MODE_EMBEDDED,
+        ], $respuesta);
+    }
+
+    public function testBuildPaymentResponseSinPaymentUrlUsaLaSiguienteUrl(): void
+    {
+        $this->toggleEmbebido('0');
+        [$order] = $this->ordenConPago();
+
+        $respuesta = $this->method->buildPaymentResponse($order, [
+            'payment_id' => 'cqnt0m9cj1io',
+            'transfer_url' => 'https://khipu.com/payment/manual/cqnt0m9cj1io',
+        ]);
+
+        $this->assertTrue($respuesta['status']);
+        $this->assertSame('https://khipu.com/payment/manual/cqnt0m9cj1io', $respuesta['payment_url']);
+        $this->assertSame(Simplified::MODE_REDIRECT, $respuesta['mode']);
+    }
+
+    public function testBuildPaymentResponseSinNingunaUrlEsErrorYNoDecideModo(): void
+    {
+        $this->toggleEmbebido('1');
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+        [$order, $payment] = $this->ordenConPago();
+
+        // El cobro existe en Khipu aunque no haya URL: se guarda igual para poder borrarlo.
+        $payment->expects($this->once())
+            ->method('setAdditionalInformation')
+            ->with('khipu_payment_id', 'cqnt0m9cj1io');
+
+        $respuesta = $this->method->buildPaymentResponse($order, ['payment_id' => 'cqnt0m9cj1io']);
+
+        $this->assertSame(
+            ['reason' => 'Khipu no devolvió una URL de pago.', 'status' => false],
+            $respuesta
+        );
     }
 }
