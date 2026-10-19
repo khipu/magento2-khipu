@@ -42,4 +42,14 @@
             <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
         </arguments>
     </type>
+    <type name="Khipu\Payment\Model\PaymentMethods">
+        <arguments>
+            <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
+        </arguments>
+    </type>
+    <type name="Khipu\Payment\Plugin\Checkout\Controller\Onepage\FailurePlugin">
+        <arguments>
+            <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
+        </arguments>
+    </type>
 </config>

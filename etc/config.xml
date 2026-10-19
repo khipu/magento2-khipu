@@ -8,6 +8,7 @@
             <title>khipu</title>
             <payment_action>Authorization</payment_action>
             <invoice_settings>default</invoice_settings>
+            <embedded_payment>0</embedded_payment>
         </simplified>
     </payment>
 </default>

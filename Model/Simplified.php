@@ -25,7 +25,7 @@ use Psr\Log\LoggerInterface;
 
 class Simplified extends AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.6.1";
+    const KHIPU_MAGENTO_VERSION = "2.7.0";
     const API_VERSION = "3.0";
 
     /**
@@ -35,9 +35,13 @@ class Simplified extends AbstractMethod
      */
     const TOLERANCIA_MONTO = 0.00005;
 
+    const MODE_EMBEDDED = 'embedded';
+    const MODE_REDIRECT = 'redirect';
+
     protected $_code = 'simplified';
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
+    protected $paymentMethods;
     protected $storeManager;
     protected $orderSender;
     protected $refundService;
@@ -68,6 +72,7 @@ class Simplified extends AbstractMethod
         LoggerInterface $khipuLogger,
         NoticeBuilder $noticeBuilder,
         ManagerInterface $messageManager,
+        PaymentMethods $paymentMethods,
         AbstractResource $resource = null,
         AbstractDb $resourceCollection = null,
         array $data = array()
@@ -94,6 +99,7 @@ class Simplified extends AbstractMethod
         $this->khipuLogger = $khipuLogger;
         $this->noticeBuilder = $noticeBuilder;
         $this->messageManager = $messageManager;
+        $this->paymentMethods = $paymentMethods;
     }
 
     public function getKhipuRequest(Order $order)
@@ -152,16 +158,7 @@ class Simplified extends AbstractMethod
 
         $responseData = json_decode($response, true);
         if (isset($responseData['payment_id'])) {
-            $order->setKhipuPaymentId($responseData['payment_id']);
-            $order->save();
-            $paymentUrl = $responseData['payment_url']
-                ?? $responseData['simplified_transfer_url']
-                ?? $responseData['transfer_url']
-                ?? null;
-            if ($paymentUrl) {
-                return ['status' => true, 'payment_url' => $paymentUrl];
-            }
-            return ['reason' => 'Khipu no devolvió una URL de pago.', 'status' => false];
+            return $this->buildPaymentResponse($order, $responseData);
         } else {
             $msg = "Error de comunicación con Khipu.\n";
             if (isset($responseData['message'])) {
@@ -169,6 +166,51 @@ class Simplified extends AbstractMethod
             }
             return ['reason' => $msg, 'status' => false];
         }
+    }
+
+    /**
+     * Arma la respuesta para el checkout a partir de la respuesta de Khipu.
+     *
+     * El ID del cobro se guarda antes que nada, incluso si falta la URL: el cobro
+     * ya existe en Khipu y FailurePlugin lo necesita para borrarlo si la orden se
+     * cancela. Antes se usaba $order->setKhipuPaymentId(), que no se persistía
+     * porque sales_order no tiene esa columna.
+     */
+    public function buildPaymentResponse(Order $order, array $responseData)
+    {
+        $payment = $order->getPayment();
+        $payment->setAdditionalInformation('khipu_payment_id', $responseData['payment_id']);
+        $payment->save();
+
+        $paymentUrl = $responseData['payment_url']
+            ?? $responseData['simplified_transfer_url']
+            ?? $responseData['transfer_url']
+            ?? null;
+
+        if (!$paymentUrl) {
+            return ['reason' => 'Khipu no devolvió una URL de pago.', 'status' => false];
+        }
+
+        return [
+            'status' => true,
+            'payment_url' => $paymentUrl,
+            'payment_id' => $responseData['payment_id'],
+            'mode' => $this->resolveMode(),
+        ];
+    }
+
+    /**
+     * Modo de pago en el checkout. KWS solo hace transferencia simplificada, así
+     * que el modal se abre solo si la cuenta la tiene; en cualquier otro caso se
+     * redirige a payment_url, que muestra todos los medios habilitados.
+     */
+    public function resolveMode()
+    {
+        if (!$this->getConfigData('embedded_payment')) {
+            return self::MODE_REDIRECT;
+        }
+
+        return $this->paymentMethods->hasSimplifiedTransfer() ? self::MODE_EMBEDDED : self::MODE_REDIRECT;
     }
 
     /**

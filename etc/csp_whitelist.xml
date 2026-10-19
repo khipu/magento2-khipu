@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- Dominios que necesita KWS (pago embebido). px.srvcdn.net es el script de huella del dispositivo que carga KWS. -->
+<csp_whitelist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Csp:etc/csp_whitelist.xsd">
+    <policies>
+        <policy id="script-src">
+            <values>
+                <value id="khipu-js" type="host">js.khipu.com</value>
+                <value id="khipu-ws" type="host">khenshin-ws-oci-scl.khipu.com</value>
+                <value id="khipu-ws-alt" type="host">khenshin-ws.khipu.com</value>
+                <value id="khipu-udfp" type="host">px.srvcdn.net</value>
+            </values>
+        </policy>
+        <policy id="frame-src">
+            <values>
+                <value id="khipu-js" type="host">js.khipu.com</value>
+            </values>
+        </policy>
+    </policies>
+</csp_whitelist>
