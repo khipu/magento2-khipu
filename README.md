@@ -58,5 +58,6 @@ You can install Magento 2.7.0 khipu plugin via [Composer](http://getcomposer.org
 - `Stores / Configuration / Sales / Payment Methods / Khipu` has a "Pago embebido" (embedded payment) switch, off by default.
 - When it is on, the payment opens in a Khipu modal (KWS) inside the checkout, but only if the Khipu account has simplified transfer enabled. Otherwise the customer is redirected to Khipu's payment page as usual.
 - The modal only offers simplified transfer, even if the Khipu account has other payment methods enabled (manual transfer, direct debit, LigoPay, etc.).
+- The plugin caches the account's payment methods for 30 seconds, so changes made in Khipu reach the checkout within 30 seconds. Use "Flush Magento Cache" (System / Cache Management) to apply them right away, and also after turning the switch on or off.
 - Requires the Magento_Csp module. The plugin ships `etc/csp_whitelist.xml` with js.khipu.com and the hosts KWS uses.
 - Behavior change that applies even with the switch off: when a customer abandons the payment, the plugin first deletes the charge in Khipu and only then cancels the order. If Khipu does not allow it (for example, the charge is already paid), the order stays pending and the customer sees a notice.

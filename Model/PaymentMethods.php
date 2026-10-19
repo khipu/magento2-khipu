@@ -5,6 +5,7 @@ namespace Khipu\Payment\Model;
 
 use Khipu\Payment\Model\Refund\RefundException;
 use Khipu\Payment\Model\Refund\Service;
+use Magento\Framework\App\Cache\Type\Config as ConfigCache;
 use Magento\Framework\App\CacheInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Psr\Log\LoggerInterface;
@@ -27,7 +28,9 @@ class PaymentMethods
 
     private const MERCHANT_ID_PATH = 'payment/simplified/merchant_id';
     private const CACHE_PREFIX = 'khipu_payment_methods_';
-    private const CACHE_TTL = 600;
+    // Corta a propósito: si el comercio cambia sus medios en Khipu, el checkout lo
+    // refleja en a lo más 30 segundos. Sin caché cada pedido sumaría ~1 s de consulta.
+    private const CACHE_TTL = 30;
     private const TIMEOUT = 5;
 
     private Service $service;
@@ -87,7 +90,8 @@ class PaymentMethods
 
         $ids = $this->service->getPaymentMethodIds($merchantId, self::TIMEOUT);
 
-        $this->cache->save((string) json_encode($ids), $clave, [], self::CACHE_TTL);
+        // Con la etiqueta de configuración, "Flush Magento Cache" también la borra.
+        $this->cache->save((string) json_encode($ids), $clave, [ConfigCache::CACHE_TAG], self::CACHE_TTL);
 
         return in_array(self::SIMPLIFIED_TRANSFER, $ids, true);
     }

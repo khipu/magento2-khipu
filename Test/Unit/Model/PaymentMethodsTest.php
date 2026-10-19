@@ -53,13 +53,13 @@ class PaymentMethodsTest extends TestCase
         $this->assertFalse($this->crear()->hasSimplifiedTransfer());
     }
 
-    public function testGuardaLaRespuestaEnCachePorDiezMinutos(): void
+    public function testGuardaLaRespuestaEnCachePorTreintaSegundosConEtiquetaDeConfiguracion(): void
     {
         $this->cache->method('load')->willReturn(false);
         $this->service->method('getPaymentMethodIds')->willReturn(['LIGOPAY']);
         $this->cache->expects($this->once())
             ->method('save')
-            ->with('["LIGOPAY"]', 'khipu_payment_methods_505127', [], 600);
+            ->with('["LIGOPAY"]', 'khipu_payment_methods_505127', ['CONFIG'], 30);
 
         $this->crear()->hasSimplifiedTransfer();
     }
