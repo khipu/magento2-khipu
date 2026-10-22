@@ -2,10 +2,13 @@
 
 namespace Khipu\Payment\Model;
 
+use Khipu\Payment\Model\Config\MethodsTable;
 use Magento\Framework\Api\AttributeValueFactory;
 use Magento\Framework\Api\ExtensionAttributesFactory;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Data\Collection\AbstractDb;
+use Magento\Framework\DataObject;
+use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Model\Context;
 use Magento\Framework\Model\ResourceModel\AbstractResource;
 use Magento\Framework\Registry;
@@ -13,6 +16,8 @@ use Magento\Framework\UrlInterface;
 use Magento\Payment\Helper\Data;
 use Magento\Payment\Model\Method\AbstractMethod;
 use Magento\Payment\Model\Method\Logger;
+use Magento\Quote\Api\Data\CartInterface;
+use Magento\Quote\Api\Data\PaymentInterface;
 use Magento\Sales\Model\Order;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
@@ -25,7 +30,7 @@ use Psr\Log\LoggerInterface;
 
 class Simplified extends AbstractMethod
 {
-    const KHIPU_MAGENTO_VERSION = "2.7.0";
+    const KHIPU_MAGENTO_VERSION = "2.8.0";
     const API_VERSION = "3.0";
 
     /**
@@ -38,10 +43,16 @@ class Simplified extends AbstractMethod
     const MODE_EMBEDDED = 'embedded';
     const MODE_REDIRECT = 'redirect';
 
+    /** Claves en additional_information del pago con el medio elegido en el checkout. */
+    const INFO_METHOD = 'khipu_payment_method';
+    const INFO_METHOD_TITLE = 'khipu_payment_method_title';
+
     protected $_code = 'simplified';
+    protected $_infoBlockType = \Khipu\Payment\Block\Info::class;
     protected $_isInitializeNeeded = true;
     protected $urlBuilder;
     protected $paymentMethods;
+    protected $methodsTable;
     protected $storeManager;
     protected $orderSender;
     protected $refundService;
@@ -52,6 +63,7 @@ class Simplified extends AbstractMethod
     protected $_canOrder = true;
     protected $_canAuthorize = true;
     protected $_canUseCheckout = true;
+    protected $_canUseInternal = false;
     protected $_canFetchTransactionInfo = true;
     protected $_canRefund = true;
     protected $_canRefundInvoicePartial = true;
@@ -73,6 +85,7 @@ class Simplified extends AbstractMethod
         NoticeBuilder $noticeBuilder,
         ManagerInterface $messageManager,
         PaymentMethods $paymentMethods,
+        MethodsTable $methodsTable,
         AbstractResource $resource = null,
         AbstractDb $resourceCollection = null,
         array $data = array()
@@ -100,6 +113,46 @@ class Simplified extends AbstractMethod
         $this->noticeBuilder = $noticeBuilder;
         $this->messageManager = $messageManager;
         $this->paymentMethods = $paymentMethods;
+        $this->methodsTable = $methodsTable;
+    }
+
+    /**
+     * Sin medios activos en la tabla (no se ha apretado "Conectar", o la tabla es
+     * de otro Merchant_ID) no se muestra Khipu en el checkout.
+     */
+    public function isAvailable(?CartInterface $quote = null)
+    {
+        return parent::isAvailable($quote) && $this->hasActiveMethods();
+    }
+
+    public function hasActiveMethods(): bool
+    {
+        return $this->methodsTable->activeMethods() !== [];
+    }
+
+    /**
+     * Guarda en el pago el medio de Khipu que eligió el comprador, validando que
+     * siga activo en la tabla.
+     */
+    public function assignData(DataObject $data)
+    {
+        parent::assignData($data);
+
+        $additionalData = $data->getData(PaymentInterface::KEY_ADDITIONAL_DATA);
+        $methodId = is_array($additionalData) ? ($additionalData[self::INFO_METHOD] ?? null) : null;
+
+        $fila = is_string($methodId) && $methodId !== '' ? $this->methodsTable->findActive($methodId) : null;
+        if ($fila === null) {
+            throw new LocalizedException(
+                __('El medio de pago de Khipu elegido ya no está disponible. Recarga la página e intenta de nuevo.')
+            );
+        }
+
+        $info = $this->getInfoInstance();
+        $info->setAdditionalInformation(self::INFO_METHOD, $methodId);
+        $info->setAdditionalInformation(self::INFO_METHOD_TITLE, (string) ($fila['title'] ?? $methodId));
+
+        return $this;
     }
 
     public function getKhipuRequest(Order $order)
@@ -133,6 +186,14 @@ class Simplified extends AbstractMethod
             'payer_email' => $payerEmail
         ];
 
+        $methodId = $payment->getAdditionalInformation(self::INFO_METHOD);
+        $methodId = is_string($methodId) && $methodId !== '' ? $methodId : null;
+        $mode = $this->resolveMode($methodId);
+        $mandatory = $this->mandatoryPaymentMethod($methodId, $mode);
+        if ($mandatory !== null) {
+            $paymentData['mandatory_payment_method'] = $mandatory;
+        }
+
         $ch = curl_init('https://payment-api.khipu.com/v3/payments');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -158,7 +219,7 @@ class Simplified extends AbstractMethod
 
         $responseData = json_decode($response, true);
         if (isset($responseData['payment_id'])) {
-            return $this->buildPaymentResponse($order, $responseData);
+            return $this->buildPaymentResponse($order, $responseData, $mode);
         } else {
             $msg = "Error de comunicación con Khipu.\n";
             if (isset($responseData['message'])) {
@@ -176,7 +237,7 @@ class Simplified extends AbstractMethod
      * cancela. Antes se usaba $order->setKhipuPaymentId(), que no se persistía
      * porque sales_order no tiene esa columna.
      */
-    public function buildPaymentResponse(Order $order, array $responseData)
+    public function buildPaymentResponse(Order $order, array $responseData, string $mode)
     {
         $payment = $order->getPayment();
         $payment->setAdditionalInformation('khipu_payment_id', $responseData['payment_id']);
@@ -195,22 +256,64 @@ class Simplified extends AbstractMethod
             'status' => true,
             'payment_url' => $paymentUrl,
             'payment_id' => $responseData['payment_id'],
-            'mode' => $this->resolveMode(),
+            'mode' => $mode,
         ];
     }
 
     /**
-     * Modo de pago en el checkout. KWS solo hace transferencia simplificada, así
-     * que el modal se abre solo si la cuenta la tiene; en cualquier otro caso se
-     * redirige a payment_url, que muestra todos los medios habilitados.
+     * Modo de pago en el checkout según la fila del medio elegido. Solo la
+     * simplificada puede ser embebida, porque KWS solo hace transferencia
+     * simplificada, y el modal se abre solo si la cuenta todavía la tiene. En
+     * cualquier otro caso se redirige a payment_url.
      */
-    public function resolveMode()
+    public function resolveMode(?string $methodId): string
     {
-        if (!$this->getConfigData('embedded_payment')) {
+        $fila = $this->activeRow($methodId);
+        if ($fila === null
+            || $methodId !== PaymentMethods::SIMPLIFIED_TRANSFER
+            || ($fila['mode'] ?? null) !== self::MODE_EMBEDDED
+        ) {
             return self::MODE_REDIRECT;
         }
 
         return $this->paymentMethods->hasSimplifiedTransfer() ? self::MODE_EMBEDDED : self::MODE_REDIRECT;
+    }
+
+    /**
+     * Medio con que se restringe el cobro en Khipu (mandatory_payment_method).
+     *
+     * - Embebido: nunca se restringe (no está probado que el modal lo soporte).
+     * - Fila de simplificada en "Embebido" que cayó a redirección porque la
+     *   cuenta perdió la simplificada: sin restricción, como en 2.7.0.
+     * - Sin medio elegido (pedidos de 2.7.x) o medio que ya no está activo:
+     *   simplificada sin restricción.
+     * - Cualquier otro caso: el medio elegido.
+     */
+    public function mandatoryPaymentMethod(?string $methodId, string $mode): ?string
+    {
+        if ($mode === self::MODE_EMBEDDED) {
+            return null;
+        }
+
+        $fila = $this->activeRow($methodId);
+        if ($fila === null) {
+            return null;
+        }
+
+        if ($methodId === PaymentMethods::SIMPLIFIED_TRANSFER && ($fila['mode'] ?? null) === self::MODE_EMBEDDED) {
+            return null;
+        }
+
+        return $methodId;
+    }
+
+    private function activeRow(?string $methodId): ?array
+    {
+        if ($methodId === null || $methodId === '') {
+            return null;
+        }
+
+        return $this->methodsTable->findActive($methodId);
     }
 
     /**

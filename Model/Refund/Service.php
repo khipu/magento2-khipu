@@ -98,28 +98,43 @@ class Service
     /**
      * GET /v3/merchants/{id}/paymentMethods
      *
-     * @return string[] ids de los medios habilitados, por ejemplo SIMPLIFIED_TRANSFER.
+     * @param string|null $apiKey Si viene, reemplaza la API key de la configuración
+     *                            (por ejemplo la que el admin aún no guarda).
+     * @return list<array{id:string,name:string,logo_url:string}> medios en el orden de Khipu.
      * @throws RefundException
      */
-    public function getPaymentMethodIds(string $merchantId, int $timeout): array
+    public function getPaymentMethods(string $merchantId, int $timeout, ?string $apiKey = null): array
     {
         $respuesta = $this->request(
             'GET',
             '/v3/merchants/' . rawurlencode($merchantId) . '/paymentMethods',
             null,
-            ['timeout' => $timeout]
+            ['timeout' => $timeout, 'api_key' => $apiKey]
         );
 
         $this->exigirCampos($respuesta, ['paymentMethods'], 'GET /v3/merchants/{id}/paymentMethods');
 
-        $ids = [];
+        $medios = [];
         foreach ((array) $respuesta->paymentMethods as $metodo) {
             if (isset($metodo->id)) {
-                $ids[] = (string) $metodo->id;
+                $medios[] = [
+                    'id' => (string) $metodo->id,
+                    'name' => (string) ($metodo->name ?? ''),
+                    'logo_url' => (string) ($metodo->logo_url ?? ''),
+                ];
             }
         }
 
-        return $ids;
+        return $medios;
+    }
+
+    /**
+     * @return string[] ids de los medios habilitados, por ejemplo SIMPLIFIED_TRANSFER.
+     * @throws RefundException
+     */
+    public function getPaymentMethodIds(string $merchantId, int $timeout): array
+    {
+        return array_column($this->getPaymentMethods($merchantId, $timeout), 'id');
     }
 
     /**
@@ -151,7 +166,9 @@ class Service
      */
     private function request(string $method, string $path, ?string $body = null, array $opciones = []): \stdClass
     {
-        $apiKey = (string) $this->scopeConfig->getValue(self::API_KEY_PATH);
+        $apiKey = isset($opciones['api_key']) && $opciones['api_key'] !== ''
+            ? (string) $opciones['api_key']
+            : (string) $this->scopeConfig->getValue(self::API_KEY_PATH);
 
         $headers = [
             'Content-Type' => 'application/json',

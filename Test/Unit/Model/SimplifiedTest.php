@@ -3,15 +3,18 @@ declare(strict_types=1);
 
 namespace Khipu\Payment\Test\Unit\Model;
 
+use Khipu\Payment\Model\Config\MethodsTable;
 use Khipu\Payment\Model\PaymentMethods;
 use Khipu\Payment\Model\Refund\ErrorTranslator;
 use Khipu\Payment\Model\Refund\NoticeBuilder;
 use Khipu\Payment\Model\Refund\RefundException;
 use Khipu\Payment\Model\Refund\Service as RefundService;
 use Khipu\Payment\Model\Simplified;
-use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\DataObject;
+use Magento\Framework\Event\ManagerInterface as EventManagerInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Message\ManagerInterface;
+use Magento\Quote\Api\Data\PaymentInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Creditmemo;
 use Magento\Sales\Model\Order\Payment;
@@ -27,6 +30,7 @@ class SimplifiedTest extends TestCase
     private LoggerInterface&MockObject $khipuLogger;
     private ManagerInterface&MockObject $messageManager;
     private PaymentMethods&MockObject $paymentMethods;
+    private MethodsTable&MockObject $methodsTable;
 
     protected function setUp(): void
     {
@@ -45,6 +49,8 @@ class SimplifiedTest extends TestCase
         $this->inyectar('messageManager', $this->messageManager);
         $this->paymentMethods = $this->createMock(PaymentMethods::class);
         $this->inyectar('paymentMethods', $this->paymentMethods);
+        $this->methodsTable = $this->createMock(MethodsTable::class);
+        $this->inyectar('methodsTable', $this->methodsTable);
     }
 
     private function inyectar(string $propiedad, $valor): void
@@ -73,6 +79,11 @@ class SimplifiedTest extends TestCase
     {
         $this->assertSame(2, $this->method->getDecimalPlaces('USD'));
         $this->assertSame(2, $this->method->getDecimalPlaces('EUR'));
+    }
+
+    public function testNoSePuedeUsarDesdeElAdminInterno(): void
+    {
+        $this->assertFalse($this->method->canUseInternal());
     }
 
     public function testDeclaraQuePuedeReembolsarTotalYParcialmente(): void
@@ -447,49 +458,95 @@ class SimplifiedTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // Pago embebido: modo y respuesta de getKhipuRequest()
+    // Modo y medio obligatorio según la tabla de medios
     // ------------------------------------------------------------------
 
-    private function toggleEmbebido(?string $valor): void
+    private function fila(string $id, string $mode, string $title = 'Título'): array
     {
-        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $scopeConfig->method('getValue')->willReturnCallback(
-            static fn($path) => $path === 'payment/simplified/embedded_payment' ? $valor : null
+        return ['id' => $id, 'name' => $id, 'logo_url' => '', 'active' => true, 'title' => $title, 'mode' => $mode];
+    }
+
+    /** Deja activa solo esta fila: findActive() la devuelve si piden su id. */
+    private function tablaCon(array $fila): void
+    {
+        $this->methodsTable->method('activeMethods')->willReturn([$fila]);
+        $this->methodsTable->method('findActive')->willReturnCallback(
+            static fn(string $id) => $id === $fila['id'] ? $fila : null
         );
-        $this->inyectar('_scopeConfig', $scopeConfig);
     }
 
-    public function testToggleApagadoRedirigeSinConsultarMedios(): void
+    public function testSimplificadaEmbebidaConLaCuentaQueLaTieneEsEmbebido(): void
     {
-        $this->toggleEmbebido('0');
-        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
-
-        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
-    }
-
-    public function testToggleSinConfigurarRedirige(): void
-    {
-        $this->toggleEmbebido(null);
-        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
-
-        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
-    }
-
-    public function testToggleEncendidoConTransferenciaSimplificadaEsEmbebido(): void
-    {
-        $this->toggleEmbebido('1');
+        $this->tablaCon($this->fila(PaymentMethods::SIMPLIFIED_TRANSFER, Simplified::MODE_EMBEDDED));
         $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(true);
 
-        $this->assertSame(Simplified::MODE_EMBEDDED, $this->method->resolveMode());
+        $modo = $this->method->resolveMode('SIMPLIFIED_TRANSFER');
+
+        $this->assertSame(Simplified::MODE_EMBEDDED, $modo);
+        $this->assertNull($this->method->mandatoryPaymentMethod('SIMPLIFIED_TRANSFER', Simplified::MODE_EMBEDDED));
     }
 
-    public function testToggleEncendidoSinTransferenciaSimplificadaRedirige(): void
+    /** Como en 2.7.0: si la cuenta perdió la simplificada, redirige y no restringe. */
+    public function testEmbebidaSinSimplificadaRedirigeSinRestriccion(): void
     {
-        $this->toggleEmbebido('1');
+        $this->tablaCon($this->fila(PaymentMethods::SIMPLIFIED_TRANSFER, Simplified::MODE_EMBEDDED));
         $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(false);
 
-        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode());
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode('SIMPLIFIED_TRANSFER'));
+        $this->assertNull($this->method->mandatoryPaymentMethod('SIMPLIFIED_TRANSFER', Simplified::MODE_REDIRECT));
     }
+
+    public function testSimplificadaEnRedireccionRestringeYNoConsultaMedios(): void
+    {
+        $this->tablaCon($this->fila(PaymentMethods::SIMPLIFIED_TRANSFER, Simplified::MODE_REDIRECT));
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $modo = $this->method->resolveMode('SIMPLIFIED_TRANSFER');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $modo);
+        $this->assertSame(
+            'SIMPLIFIED_TRANSFER',
+            $this->method->mandatoryPaymentMethod('SIMPLIFIED_TRANSFER', $modo)
+        );
+    }
+
+    public function testOtroMedioRedirigeRestringido(): void
+    {
+        $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT, 'QR'));
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $modo = $this->method->resolveMode('LIGOPAY');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $modo);
+        $this->assertSame('LIGOPAY', $this->method->mandatoryPaymentMethod('LIGOPAY', $modo));
+    }
+
+    /** Pedido creado con 2.7.x: simplificada sin restricción. */
+    public function testSinMedioElegidoRedirigeSinRestriccion(): void
+    {
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $modo = $this->method->resolveMode(null);
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $modo);
+        $this->assertNull($this->method->mandatoryPaymentMethod(null, $modo));
+    }
+
+    public function testMedioQueYaNoEstaActivoRedirigeSinRestriccion(): void
+    {
+        $this->methodsTable->method('activeMethods')->willReturn([]);
+        $this->methodsTable->method('findActive')->willReturn(null);
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $modo = $this->method->resolveMode('LIGOPAY');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $modo);
+        $this->assertNull($this->method->mandatoryPaymentMethod('LIGOPAY', $modo));
+    }
+
+    // ------------------------------------------------------------------
+    // buildPaymentResponse()
+    // ------------------------------------------------------------------
 
     /**
      * @return array{0: Order&MockObject, 1: Payment&MockObject}
@@ -505,8 +562,6 @@ class SimplifiedTest extends TestCase
 
     public function testBuildPaymentResponseGuardaElIdDelPagoYDevuelveElModo(): void
     {
-        $this->toggleEmbebido('1');
-        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(true);
         [$order, $payment] = $this->ordenConPago();
 
         $payment->expects($this->once())
@@ -518,7 +573,7 @@ class SimplifiedTest extends TestCase
             'payment_id' => 'cqnt0m9cj1io',
             'payment_url' => 'https://khipu.com/payment/info/cqnt0m9cj1io',
             'simplified_transfer_url' => 'https://app.khipu.com/payment/simplified/cqnt0m9cj1io',
-        ]);
+        ], Simplified::MODE_EMBEDDED);
 
         $this->assertSame([
             'status' => true,
@@ -530,23 +585,20 @@ class SimplifiedTest extends TestCase
 
     public function testBuildPaymentResponseSinPaymentUrlUsaLaSiguienteUrl(): void
     {
-        $this->toggleEmbebido('0');
         [$order] = $this->ordenConPago();
 
         $respuesta = $this->method->buildPaymentResponse($order, [
             'payment_id' => 'cqnt0m9cj1io',
             'transfer_url' => 'https://khipu.com/payment/manual/cqnt0m9cj1io',
-        ]);
+        ], Simplified::MODE_REDIRECT);
 
         $this->assertTrue($respuesta['status']);
         $this->assertSame('https://khipu.com/payment/manual/cqnt0m9cj1io', $respuesta['payment_url']);
         $this->assertSame(Simplified::MODE_REDIRECT, $respuesta['mode']);
     }
 
-    public function testBuildPaymentResponseSinNingunaUrlEsErrorYNoDecideModo(): void
+    public function testBuildPaymentResponseSinNingunaUrlEsError(): void
     {
-        $this->toggleEmbebido('1');
-        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
         [$order, $payment] = $this->ordenConPago();
 
         // El cobro existe en Khipu aunque no haya URL: se guarda igual para poder borrarlo.
@@ -554,11 +606,106 @@ class SimplifiedTest extends TestCase
             ->method('setAdditionalInformation')
             ->with('khipu_payment_id', 'cqnt0m9cj1io');
 
-        $respuesta = $this->method->buildPaymentResponse($order, ['payment_id' => 'cqnt0m9cj1io']);
+        $respuesta = $this->method->buildPaymentResponse(
+            $order,
+            ['payment_id' => 'cqnt0m9cj1io'],
+            Simplified::MODE_EMBEDDED
+        );
 
         $this->assertSame(
             ['reason' => 'Khipu no devolvió una URL de pago.', 'status' => false],
             $respuesta
         );
+    }
+
+    // ------------------------------------------------------------------
+    // assignData() / isAvailable() / código
+    // ------------------------------------------------------------------
+
+    private function infoInstance(): Payment&MockObject
+    {
+        $this->inyectar('_eventManager', $this->createMock(EventManagerInterface::class));
+        $info = $this->createMock(Payment::class);
+        $this->method->setInfoInstance($info);
+
+        return $info;
+    }
+
+    private function datosDelCheckout(array $additionalData): DataObject
+    {
+        return new DataObject([PaymentInterface::KEY_ADDITIONAL_DATA => $additionalData]);
+    }
+
+    public function testAssignDataGuardaMedioYTitulo(): void
+    {
+        $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT, 'QR'));
+        $info = $this->infoInstance();
+
+        $guardado = [];
+        $info->method('setAdditionalInformation')->willReturnCallback(
+            function ($clave, $valor) use (&$guardado, $info) {
+                $guardado[$clave] = $valor;
+                return $info;
+            }
+        );
+
+        $this->method->assignData($this->datosDelCheckout(['khipu_payment_method' => 'LIGOPAY']));
+
+        $this->assertSame(
+            ['khipu_payment_method' => 'LIGOPAY', 'khipu_payment_method_title' => 'QR'],
+            $guardado
+        );
+    }
+
+    public function testAssignDataRechazaUnMedioNoActivo(): void
+    {
+        $this->methodsTable->method('findActive')->willReturn(null);
+        $info = $this->infoInstance();
+        $info->expects($this->never())->method('setAdditionalInformation');
+
+        $this->expectException(LocalizedException::class);
+        $this->expectExceptionMessage(
+            'El medio de pago de Khipu elegido ya no está disponible. Recarga la página e intenta de nuevo.'
+        );
+
+        $this->method->assignData($this->datosDelCheckout(['khipu_payment_method' => 'LIGOPAY']));
+    }
+
+    public function testAssignDataSinMedioRechaza(): void
+    {
+        $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT, 'QR'));
+        $info = $this->infoInstance();
+        $info->expects($this->never())->method('setAdditionalInformation');
+
+        $this->expectException(LocalizedException::class);
+        $this->expectExceptionMessage(
+            'El medio de pago de Khipu elegido ya no está disponible. Recarga la página e intenta de nuevo.'
+        );
+
+        $this->method->assignData($this->datosDelCheckout([]));
+    }
+
+    public function testNoDisponibleSinMediosActivos(): void
+    {
+        $this->methodsTable->method('activeMethods')->willReturn([]);
+
+        $this->assertFalse($this->method->hasActiveMethods());
+    }
+
+    public function testDisponibleConAlMenosUnMedioActivo(): void
+    {
+        $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT));
+
+        $this->assertTrue($this->method->hasActiveMethods());
+    }
+
+    public function testElCodigoDelMetodoSigueSiendoSimplified(): void
+    {
+        $this->assertSame('simplified', $this->method->getCode());
+    }
+
+    public function testLaInformacionDelPagoSeMuestraConElBloqueDeKhipu(): void
+    {
+        $this->assertSame(\Khipu\Payment\Block\Info::class, $this->method->getInfoBlockType());
     }
 }

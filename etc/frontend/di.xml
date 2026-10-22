@@ -4,4 +4,11 @@
     <type name="Magento\Checkout\Controller\Onepage\Failure">
         <plugin name="khipu_failure_plugin" type="Khipu\Payment\Plugin\Checkout\Controller\Onepage\FailurePlugin" />
     </type>
+    <type name="Magento\Checkout\Model\CompositeConfigProvider">
+        <arguments>
+            <argument name="configProviders" xsi:type="array">
+                <item name="khipu_config_provider" xsi:type="object">Khipu\Payment\Model\Ui\ConfigProvider</item>
+            </argument>
+        </arguments>
+    </type>
 </config>

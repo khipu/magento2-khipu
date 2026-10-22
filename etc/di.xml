@@ -42,6 +42,16 @@
             <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
         </arguments>
     </type>
+    <type name="Khipu\Payment\Model\Config\Connector">
+        <arguments>
+            <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
+        </arguments>
+    </type>
+    <type name="Khipu\Payment\Controller\Adminhtml\Config\Connect">
+        <arguments>
+            <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>
+        </arguments>
+    </type>
     <type name="Khipu\Payment\Model\PaymentMethods">
         <arguments>
             <argument name="khipuLogger" xsi:type="object">KhipuPaymentLogger</argument>

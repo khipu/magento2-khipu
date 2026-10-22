@@ -143,14 +143,16 @@ class Callback extends Action implements CsrfAwareActionInterface
         $responseTxt = 'Pago Khipu Aceptado<br>';
         $responseTxt .= 'TransactionId: ' . $notificationData['transaction_id'] . '<br>';
         $responseTxt .= 'PaymentId: ' . $notificationData['payment_id'] . '<br>';
-        $responseTxt .= 'Subject: ' . $notificationData['subject'] . '<br>';
+        // Los datos del pagador y del banco dependen del medio: un pago LigoPay no trae `bank`.
+        $responseTxt .= 'Subject: ' . ($notificationData['subject'] ?? '') . '<br>';
         $responseTxt .= 'Amount: ' . $notificationData['amount'] .' '.$notificationData['currency'] .'<br>';
-        $responseTxt .= 'Body: ' . $notificationData['body'] . '<br>';
-        $responseTxt .= 'Bank: ' . $notificationData['bank'] . '<br>';
-        $responseTxt .= 'Bank Account Number: ' . $notificationData['bank_account_number'] . '<br>';
-        $responseTxt .= 'Payer Name: ' . $notificationData['payer_name'] . '<br>';
-        $responseTxt .= 'Payer Email: ' . $notificationData['payer_email'] . '<br>';
-        $responseTxt .= 'Personal Identifier: ' . $notificationData['personal_identifier'] . '<br>';
+        $responseTxt .= 'Body: ' . ($notificationData['body'] ?? '') . '<br>';
+        $responseTxt .= 'Payment Method: ' . ($notificationData['payment_method'] ?? '') . '<br>';
+        $responseTxt .= 'Bank: ' . ($notificationData['bank'] ?? '') . '<br>';
+        $responseTxt .= 'Bank Account Number: ' . ($notificationData['bank_account_number'] ?? '') . '<br>';
+        $responseTxt .= 'Payer Name: ' . ($notificationData['payer_name'] ?? '') . '<br>';
+        $responseTxt .= 'Payer Email: ' . ($notificationData['payer_email'] ?? '') . '<br>';
+        $responseTxt .= 'Personal Identifier: ' . ($notificationData['personal_identifier'] ?? '') . '<br>';
 
         $payment = $order->getPayment();
         $invoice = $order->prepareInvoice();

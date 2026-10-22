@@ -1,0 +1,47 @@
+<?php
+/** @var \Khipu\Payment\Block\Adminhtml\System\Config\ConnectButton $block */
+$prefijo = $block->getFieldPrefix();
+?>
+<button type="button" class="action-default scalable" id="khipu-connect-button">
+    <span><?= $block->escapeHtml(__('Conectar')) ?></span>
+</button>
+<span id="khipu-connect-message" style="margin-left:10px;"></span>
+<p class="note"><span><?= $block->escapeHtml(__('Guarda las credenciales y trae los medios de pago de tu cuenta Khipu.')) ?></span></p>
+<script>
+require(['jquery'], function ($) {
+    var prefijo = <?= /* @noEscape */ json_encode($prefijo) ?>;
+    var url = <?= /* @noEscape */ json_encode($block->getConnectUrl()) ?>;
+    var $boton = $('#khipu-connect-button');
+    var $mensaje = $('#khipu-connect-message');
+
+    function valor(sufijo) {
+        return $('#' + prefijo + sufijo).val() || '';
+    }
+
+    $boton.on('click', function () {
+        $mensaje.css('color', '').text('');
+        $boton.prop('disabled', true);
+        $.ajax({
+            url: url,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                form_key: window.FORM_KEY,
+                api_key: valor('api_key'),
+                merchant_id: valor('merchant_id'),
+                merchant_secret: valor('merchant_secret')
+            }
+        }).done(function (r) {
+            if (r && r.success) {
+                window.location.reload();
+                return;
+            }
+            $mensaje.css('color', '#e22626').text((r && r.message) || 'Error al conectar.');
+            $boton.prop('disabled', false);
+        }).fail(function () {
+            $mensaje.css('color', '#e22626').text('No se pudo conectar con el servidor.');
+            $boton.prop('disabled', false);
+        });
+    });
+});
+</script>

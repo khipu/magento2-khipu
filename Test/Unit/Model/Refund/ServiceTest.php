@@ -361,4 +361,67 @@ class ServiceTest extends TestCase
 
         $this->service->getPaymentMethodIds('505127', 5);
     }
+
+    // ------------------------------------------------------------------
+    // getPaymentMethods()
+    // ------------------------------------------------------------------
+
+    public function testGetPaymentMethodsDevuelveIdNombreYLogoEnOrden(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn(
+            '{"paymentMethods":[{"id":"LIGOPAY","name":"LigoPay","logo_url":"https://x/l.png"},'
+            . '{"id":"REGULAR","name":"REGULAR","logo_url":""}]}'
+        );
+
+        $this->assertSame(
+            [
+                ['id' => 'LIGOPAY', 'name' => 'LigoPay', 'logo_url' => 'https://x/l.png'],
+                ['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => ''],
+            ],
+            $this->service->getPaymentMethods('505127', 5)
+        );
+    }
+
+    public function testGetPaymentMethodsOmiteElementosSinId(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn((string) json_encode([
+            'paymentMethods' => [
+                ['name' => 'Sin id', 'logo_url' => ''],
+                ['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => ''],
+            ],
+        ]));
+
+        $this->assertSame(
+            [['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => '']],
+            $this->service->getPaymentMethods('505127', 5)
+        );
+    }
+
+    public function testApiKeyExplicitaReemplazaLaDeConfiguracion(): void
+    {
+        $this->http->expects($this->once())
+            ->method('setHeaders')
+            ->with($this->callback(
+                fn(array $h) => ($h['x-api-key'] ?? null) === 'key-del-form'
+            ));
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"paymentMethods":[]}');
+
+        $this->service->getPaymentMethods('505127', 10, 'key-del-form');
+    }
+
+    public function testSinApiKeyExplicitaUsaLaDeConfiguracion(): void
+    {
+        $this->http->expects($this->once())
+            ->method('setHeaders')
+            ->with($this->callback(
+                fn(array $h) => ($h['x-api-key'] ?? null) === 'LA-API-KEY'
+            ));
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"paymentMethods":[]}');
+
+        $this->service->getPaymentMethods('505127', 10);
+    }
 }

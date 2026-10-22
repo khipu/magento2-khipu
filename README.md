@@ -53,11 +53,15 @@ You can install Magento 2.7.0 khipu plugin via [Composer](http://getcomposer.org
 
 4. Enable and configure Khipu plugin in Magento Admin under `Stores / Configuration / Sales / Payment Methods / Khipu`.
 
-## Embedded payment (2.7.0)
+## One button per payment method (2.8.0)
 
-- `Stores / Configuration / Sales / Payment Methods / Khipu` has a "Pago embebido" (embedded payment) switch, off by default.
-- When it is on, the payment opens in a Khipu modal (KWS) inside the checkout, but only if the Khipu account has simplified transfer enabled. Otherwise the customer is redirected to Khipu's payment page as usual.
-- The modal only offers simplified transfer, even if the Khipu account has other payment methods enabled (manual transfer, direct debit, LigoPay, etc.).
-- The plugin caches the account's payment methods for 30 seconds, so changes made in Khipu reach the checkout within 30 seconds. Use "Flush Magento Cache" (System / Cache Management) to apply them right away, and also after turning the switch on or off.
+> **Upgrading to 2.8.0:** after updating, go to `Stores / Configuration / Sales / Payment Methods / Khipu` and press **Conectar**. Until then Khipu does not appear in the checkout.
+>
+> (Después de actualizar a 2.8.0, entra a Stores › Configuration › Sales › Payment Methods › Khipu y aprieta Conectar. Hasta entonces Khipu no aparece en el checkout.)
+
+- Enter your API key, merchant id and secret and press **Conectar**; it saves the credentials itself. The plugin reads the payment methods enabled in your Khipu account and fills a table in the same screen.
+- The checkout shows one button per active payment method. Each row of the table has an active switch, a title and a mode (`embedded` or `redirect`). New methods start active. Pressing **Conectar** again adds new methods without changing the rows you already configured. If you change the Merchant_ID, Khipu is hidden from the checkout until you press **Conectar** again.
+- Simplified transfer (`SIMPLIFIED_TRANSFER`) is embedded by default (Khipu modal inside the checkout, KWS) and you can switch it to redirect. The other methods redirect to Khipu's payment page. Direct debit (`DIRECT_DEBIT`) is not offered, even if the account has it. Simplified transfer is always listed first; the other methods keep the order Khipu returns.
+- The old "Pago embebido" switch and the "title" field were removed; titles are now per method in the table.
 - Requires the Magento_Csp module. The plugin ships `etc/csp_whitelist.xml` with js.khipu.com and the hosts KWS uses.
-- Behavior change that applies even with the switch off: when a customer abandons the payment, the plugin first deletes the charge in Khipu and only then cancels the order. If Khipu does not allow it (for example, the charge is already paid), the order stays pending and the customer sees a notice.
+- When a customer abandons the payment, the plugin first deletes the charge in Khipu and only then cancels the order. If Khipu does not allow it (for example, the charge is already paid), the order stays pending and the customer sees a notice.
