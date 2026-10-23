@@ -82,6 +82,23 @@ class Service
     }
 
     /**
+     * GET /v3/payments/{id}
+     *
+     * Un cobro que no existe (o que se borró) responde 4xx: se lanza con ese
+     * código para que el llamador lo distinga de una falla de red (código 0).
+     *
+     * @throws RefundException
+     */
+    public function getPayment(string $paymentId): \stdClass
+    {
+        $respuesta = $this->request('GET', '/v3/payments/' . rawurlencode($paymentId));
+
+        $this->exigirCampos($respuesta, ['payment_id', 'status'], 'GET /v3/payments/{id}');
+
+        return $respuesta;
+    }
+
+    /**
      * DELETE /v3/payments/{id}
      *
      * Khipu solo borra cobros pendientes. Cualquier respuesta fuera de 2xx se

@@ -18,17 +18,21 @@ define(
 										redirectAfterPlaceOrder: false
 									},
 
-									// Medios de Khipu activos: [{id, title}], en el orden de la tabla.
-									khipuMethods: khipuConfig.methods || [],
-
 									initialize: function () {
+										this._super();
+
+										// Medios de Khipu activos: [{id, title}], en el orden de la tabla.
+										// Sin tabla conectada (recién actualizado desde 2.7.x) llega
+										// vacío: se muestra el botón único de siempre, con id '' para
+										// que el cobro se cree sin restricción de medio.
+										this.khipuMethods = (khipuConfig.methods && khipuConfig.methods.length)
+											? khipuConfig.methods
+											: [{id: '', title: this.getTitle()}];
+
 										// Parte con el primer medio elegido: si Magento selecciona
 										// `simplified` por su cuenta (único método o selección
-										// restaurada), el pedido nunca sale sin khipu_payment_method.
-										this.selectedKhipuMethod = ko.observable(
-											this.khipuMethods.length ? this.khipuMethods[0].id : null
-										);
-										this._super();
+										// restaurada), el pedido sale con el medio que se ve marcado.
+										this.selectedKhipuMethod = ko.observable(this.khipuMethods[0].id);
 										return this;
 									},
 

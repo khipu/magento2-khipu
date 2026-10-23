@@ -366,6 +366,45 @@ class ServiceTest extends TestCase
     // getPaymentMethods()
     // ------------------------------------------------------------------
 
+    public function testGetPaymentConsultaElCobroYDevuelveSuEstado(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn(
+            '{"payment_id":"hwfx0sgbgcbt","status":"pending","expires_date":"2026-10-23T19:09:45.354Z",'
+            . '"payment_url":"https://khipu.com/payment/info/hwfx0sgbgcbt"}'
+        );
+        $this->http->expects($this->once())->method('get')
+            ->with('https://payment-api.khipu.com/v3/payments/hwfx0sgbgcbt');
+
+        $pago = $this->service->getPayment('hwfx0sgbgcbt');
+
+        $this->assertSame('pending', $pago->status);
+        $this->assertSame('https://khipu.com/payment/info/hwfx0sgbgcbt', $pago->payment_url);
+    }
+
+    public function testGetPaymentSinEstadoEsRespuestaInvalida(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"payment_id":"hwfx0sgbgcbt"}');
+
+        $this->expectException(RefundException::class);
+        $this->service->getPayment('hwfx0sgbgcbt');
+    }
+
+    /** Khipu responde 400 ("Error de validación") a un cobro que no existe. */
+    public function testGetPaymentDeUnCobroInexistenteLanzaConElCodigo(): void
+    {
+        $this->http->method('getStatus')->willReturn(400);
+        $this->http->method('getBody')->willReturn('{"status":400,"message":"Error de validación"}');
+
+        try {
+            $this->service->getPayment('noexiste123x');
+            $this->fail('Debía lanzar');
+        } catch (RefundException $e) {
+            $this->assertSame(400, $e->getHttpCode());
+        }
+    }
+
     public function testGetPaymentMethodsDevuelveIdNombreYLogoEnOrden(): void
     {
         $this->http->method('getStatus')->willReturn(200);

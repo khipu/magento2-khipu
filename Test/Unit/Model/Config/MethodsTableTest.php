@@ -89,6 +89,14 @@ class MethodsTableTest extends TestCase
         $this->assertNull($t->findActive('DIRECT_DEBIT'));
     }
 
+    public function testSoloEstaConectadaSiHayTablaDelMerchantActual(): void
+    {
+        $this->assertFalse($this->crear(null)->isConfigured());
+        $this->assertFalse($this->crear('{no json')->isConfigured());
+        $this->assertFalse($this->crear(json_encode($this->tabla('111')))->isConfigured());
+        $this->assertTrue($this->crear(json_encode($this->tabla()))->isConfigured());
+    }
+
     public function testMerchantDistintoNoTieneMediosActivos(): void
     {
         $t = $this->crear(json_encode($this->tabla('111')));

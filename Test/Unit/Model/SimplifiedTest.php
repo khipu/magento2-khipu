@@ -12,6 +12,7 @@ use Khipu\Payment\Model\Refund\Service as RefundService;
 use Khipu\Payment\Model\Simplified;
 use Magento\Framework\DataObject;
 use Magento\Framework\Event\ManagerInterface as EventManagerInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Quote\Api\Data\PaymentInterface;
@@ -521,15 +522,57 @@ class SimplifiedTest extends TestCase
         $this->assertSame('LIGOPAY', $this->method->mandatoryPaymentMethod('LIGOPAY', $modo));
     }
 
-    /** Pedido creado con 2.7.x: simplificada sin restricción. */
+    private function embebidoDe270(?string $valor): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(
+            static fn($path) => $path === 'payment/simplified/embedded_payment' ? $valor : null
+        );
+        $this->inyectar('_scopeConfig', $scopeConfig);
+    }
+
+    /** Pedido creado con 2.7.x o botón único sin tabla: simplificada sin restricción. */
     public function testSinMedioElegidoRedirigeSinRestriccion(): void
     {
+        $this->embebidoDe270(null);
         $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
 
         $modo = $this->method->resolveMode(null);
 
         $this->assertSame(Simplified::MODE_REDIRECT, $modo);
         $this->assertNull($this->method->mandatoryPaymentMethod(null, $modo));
+    }
+
+    /** Botón único: si en 2.7.x tenía el pago embebido encendido, lo conserva. */
+    public function testSinTablaYEmbebidoEncendidoEn270AbreElModal(): void
+    {
+        $this->methodsTable->method('isConfigured')->willReturn(false);
+        $this->embebidoDe270('1');
+        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(true);
+
+        $modo = $this->method->resolveMode(null);
+
+        $this->assertSame(Simplified::MODE_EMBEDDED, $modo);
+        $this->assertNull($this->method->mandatoryPaymentMethod(null, $modo));
+    }
+
+    public function testSinTablaYEmbebidoEncendidoPeroSinSimplificadaRedirige(): void
+    {
+        $this->methodsTable->method('isConfigured')->willReturn(false);
+        $this->embebidoDe270('1');
+        $this->paymentMethods->method('hasSimplifiedTransfer')->willReturn(false);
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode(null));
+    }
+
+    /** Con la tabla conectada, el switch viejo ya no manda: sin medio elegido se redirige. */
+    public function testConTablaYSinMedioElegidoIgnoraElEmbebidoDe270(): void
+    {
+        $this->methodsTable->method('isConfigured')->willReturn(true);
+        $this->embebidoDe270('1');
+        $this->paymentMethods->expects($this->never())->method('hasSimplifiedTransfer');
+
+        $this->assertSame(Simplified::MODE_REDIRECT, $this->method->resolveMode(null));
     }
 
     public function testMedioQueYaNoEstaActivoRedirigeSinRestriccion(): void
@@ -558,6 +601,129 @@ class SimplifiedTest extends TestCase
         $order->method('getPayment')->willReturn($payment);
 
         return [$order, $payment];
+    }
+
+    // ------------------------------------------------------------------
+    // Reutilizar el cobro existente (doble clic, recarga, reintento)
+    // ------------------------------------------------------------------
+
+    /** Pedido que ya tiene un cobro en Khipu. */
+    private function ordenConCobroPrevio(?string $paymentId = 'hwfx0sgbgcbt'): array
+    {
+        [$order, $payment] = $this->ordenConPago();
+        $payment->method('getAdditionalInformation')->willReturnCallback(
+            static fn($key) => $key === 'khipu_payment_id' ? $paymentId : null
+        );
+        $urlBuilder = $this->createMock(\Magento\Framework\UrlInterface::class);
+        $urlBuilder->method('getUrl')->willReturnCallback(static fn($ruta) => 'https://tienda/' . $ruta);
+        $this->inyectar('urlBuilder', $urlBuilder);
+
+        return [$order, $payment];
+    }
+
+    private function cobroEnKhipu(string $status, string $expira = '2099-01-01T00:00:00Z'): \stdClass
+    {
+        return (object) [
+            'payment_id' => 'hwfx0sgbgcbt',
+            'status' => $status,
+            'expires_date' => $expira,
+            'payment_url' => 'https://khipu.com/payment/info/hwfx0sgbgcbt',
+            'transfer_url' => 'https://khipu.com/payment/manual/hwfx0sgbgcbt',
+        ];
+    }
+
+    public function testSinCobroPrevioSeCreaUnoNuevo(): void
+    {
+        [$order] = $this->ordenConCobroPrevio(null);
+        $this->refundService->expects($this->never())->method('getPayment');
+
+        $this->assertNull($this->method->existingPaymentResponse($order, Simplified::MODE_REDIRECT));
+    }
+
+    public function testCobroPendienteVigenteSeReutilizaSinCrearOtro(): void
+    {
+        [$order, $payment] = $this->ordenConCobroPrevio();
+        $this->refundService->expects($this->once())->method('getPayment')
+            ->with('hwfx0sgbgcbt')->willReturn($this->cobroEnKhipu('pending'));
+        // No se genera un token nuevo: solo se vuelve a guardar el mismo id de cobro.
+        $payment->expects($this->once())->method('setAdditionalInformation')
+            ->with('khipu_payment_id', 'hwfx0sgbgcbt');
+
+        $this->assertSame([
+            'status' => true,
+            'payment_url' => 'https://khipu.com/payment/info/hwfx0sgbgcbt',
+            'payment_id' => 'hwfx0sgbgcbt',
+            'mode' => Simplified::MODE_EMBEDDED,
+        ], $this->method->existingPaymentResponse($order, Simplified::MODE_EMBEDDED));
+    }
+
+    public function testCobroPendienteVencidoSeReemplaza(): void
+    {
+        [$order] = $this->ordenConCobroPrevio();
+        $this->refundService->method('getPayment')
+            ->willReturn($this->cobroEnKhipu('pending', '2020-01-01T00:00:00Z'));
+
+        $this->assertNull($this->method->existingPaymentResponse($order, Simplified::MODE_REDIRECT));
+    }
+
+    /**
+     * @dataProvider estadosPagados
+     */
+    public function testCobroYaPagadoVaALaPaginaDeExitoSinCrearOtro(string $status): void
+    {
+        [$order] = $this->ordenConCobroPrevio();
+        $this->refundService->method('getPayment')->willReturn($this->cobroEnKhipu($status));
+
+        $this->assertSame([
+            'status' => true,
+            'payment_url' => 'https://tienda/checkout/onepage/success',
+            'payment_id' => 'hwfx0sgbgcbt',
+            'mode' => Simplified::MODE_REDIRECT,
+        ], $this->method->existingPaymentResponse($order, Simplified::MODE_EMBEDDED));
+    }
+
+    public static function estadosPagados(): array
+    {
+        return ['verificando' => ['verifying'], 'pagado' => ['done']];
+    }
+
+    /**
+     * Un cobro borrado sigue respondiendo 200, con status "deleted" (no está en
+     * la documentación de la API; visto en Khipu real el 2026-10-23).
+     */
+    public function testCobroBorradoSeReemplaza(): void
+    {
+        [$order] = $this->ordenConCobroPrevio();
+        $this->refundService->method('getPayment')->willReturn($this->cobroEnKhipu('deleted'));
+
+        $this->assertNull($this->method->existingPaymentResponse($order, Simplified::MODE_REDIRECT));
+    }
+
+    /** Inexistente: Khipu responde 4xx y hay que crear otro. */
+    public function testCobroQueKhipuYaNoTieneSeReemplaza(): void
+    {
+        [$order] = $this->ordenConCobroPrevio();
+        $this->refundService->method('getPayment')
+            ->willThrowException(new RefundException('Error de validación', 400));
+
+        $this->assertNull($this->method->existingPaymentResponse($order, Simplified::MODE_REDIRECT));
+    }
+
+    /** Sin respuesta de Khipu no se sabe si el cobro sigue vivo: crear otro podría duplicar. */
+    public function testSiKhipuNoRespondeNoSeCreaOtroYSePideReintentar(): void
+    {
+        [$order] = $this->ordenConCobroPrevio();
+        $this->refundService->method('getPayment')
+            ->willThrowException(new RefundException('timeout', 0));
+        $this->khipuLogger->expects($this->once())->method('warning');
+
+        $respuesta = $this->method->existingPaymentResponse($order, Simplified::MODE_REDIRECT);
+
+        $this->assertFalse($respuesta['status']);
+        $this->assertSame(
+            'No pudimos confirmar el estado de tu pago en Khipu. Intenta nuevamente en unos segundos.',
+            $respuesta['reason']
+        );
     }
 
     public function testBuildPaymentResponseGuardaElIdDelPagoYDevuelveElModo(): void
@@ -671,32 +837,39 @@ class SimplifiedTest extends TestCase
         $this->method->assignData($this->datosDelCheckout(['khipu_payment_method' => 'LIGOPAY']));
     }
 
-    public function testAssignDataSinMedioRechaza(): void
+    /** Checkouts por REST o GraphQL que no mandan el medio: cobro sin restricción, como en 2.7.0. */
+    public function testAssignDataSinMedioNoFallaYNoRestringe(): void
     {
         $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT, 'QR'));
         $info = $this->infoInstance();
         $info->expects($this->never())->method('setAdditionalInformation');
 
-        $this->expectException(LocalizedException::class);
-        $this->expectExceptionMessage(
-            'El medio de pago de Khipu elegido ya no está disponible. Recarga la página e intenta de nuevo.'
-        );
-
         $this->method->assignData($this->datosDelCheckout([]));
     }
 
-    public function testNoDisponibleSinMediosActivos(): void
+    /** Recién actualizado, sin apretar "Conectar": botón único como en 2.7.0. */
+    public function testSinTablaConectadaKhipuSigueEnElCheckout(): void
     {
+        $this->methodsTable->method('isConfigured')->willReturn(false);
         $this->methodsTable->method('activeMethods')->willReturn([]);
 
-        $this->assertFalse($this->method->hasActiveMethods());
+        $this->assertTrue($this->method->isOfferedInCheckout());
     }
 
-    public function testDisponibleConAlMenosUnMedioActivo(): void
+    public function testConTablaYTodosLosMediosApagadosNoSeMuestra(): void
     {
+        $this->methodsTable->method('isConfigured')->willReturn(true);
+        $this->methodsTable->method('activeMethods')->willReturn([]);
+
+        $this->assertFalse($this->method->isOfferedInCheckout());
+    }
+
+    public function testConTablaYUnMedioActivoSeMuestra(): void
+    {
+        $this->methodsTable->method('isConfigured')->willReturn(true);
         $this->tablaCon($this->fila('LIGOPAY', Simplified::MODE_REDIRECT));
 
-        $this->assertTrue($this->method->hasActiveMethods());
+        $this->assertTrue($this->method->isOfferedInCheckout());
     }
 
     public function testElCodigoDelMetodoSigueSiendoSimplified(): void

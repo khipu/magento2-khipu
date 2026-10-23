@@ -48,17 +48,22 @@ class MethodsTable
     }
 
     /**
+     * Hay una tabla obtenida con "Conectar" para el Merchant_ID configurado.
+     * Si no la hay (recién actualizado desde 2.7.x, o cambió la cuenta), el
+     * checkout muestra el botón único de Khipu como antes.
+     */
+    public function isConfigured(): bool
+    {
+        return $this->tablaDelMerchantActual() !== null;
+    }
+
+    /**
      * Filas activas, en orden. Vacío si no hay tabla o es de otra cuenta.
      */
     public function activeMethods(): array
     {
-        $tabla = $this->get();
+        $tabla = $this->tablaDelMerchantActual();
         if ($tabla === null) {
-            return [];
-        }
-
-        $merchantId = trim((string)$this->scopeConfig->getValue(self::MERCHANT_PATH));
-        if (trim((string)($tabla['merchant_id'] ?? '')) !== $merchantId) {
             return [];
         }
 
@@ -66,6 +71,18 @@ class MethodsTable
             $tabla['methods'],
             static fn($fila) => is_array($fila) && ($fila['active'] ?? false) === true
         ));
+    }
+
+    private function tablaDelMerchantActual(): ?array
+    {
+        $tabla = $this->get();
+        if ($tabla === null) {
+            return null;
+        }
+
+        $merchantId = trim((string)$this->scopeConfig->getValue(self::MERCHANT_PATH));
+
+        return trim((string)($tabla['merchant_id'] ?? '')) === $merchantId ? $tabla : null;
     }
 
     public function findActive(string $id): ?array

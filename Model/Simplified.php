@@ -116,13 +116,19 @@ class Simplified extends AbstractMethod
         $this->methodsTable = $methodsTable;
     }
 
-    /**
-     * Sin medios activos en la tabla (no se ha apretado "Conectar", o la tabla es
-     * de otro Merchant_ID) no se muestra Khipu en el checkout.
-     */
     public function isAvailable(?CartInterface $quote = null)
     {
-        return parent::isAvailable($quote) && $this->hasActiveMethods();
+        return parent::isAvailable($quote) && $this->isOfferedInCheckout();
+    }
+
+    /**
+     * Sin tabla conectada (recién actualizado desde 2.7.x, o cambió el
+     * Merchant_ID) se ofrece el botón único de siempre, para que ninguna tienda
+     * deje de cobrar por actualizar. Con tabla, solo si queda algún medio activo.
+     */
+    public function isOfferedInCheckout(): bool
+    {
+        return !$this->methodsTable->isConfigured() || $this->hasActiveMethods();
     }
 
     public function hasActiveMethods(): bool
@@ -132,7 +138,8 @@ class Simplified extends AbstractMethod
 
     /**
      * Guarda en el pago el medio de Khipu que eligió el comprador, validando que
-     * siga activo en la tabla.
+     * siga activo en la tabla. Sin medio (botón único, o checkouts por REST o
+     * GraphQL que no lo mandan) el cobro se crea sin restricción, como en 2.7.0.
      */
     public function assignData(DataObject $data)
     {
@@ -140,8 +147,11 @@ class Simplified extends AbstractMethod
 
         $additionalData = $data->getData(PaymentInterface::KEY_ADDITIONAL_DATA);
         $methodId = is_array($additionalData) ? ($additionalData[self::INFO_METHOD] ?? null) : null;
+        if ($methodId === null || $methodId === '') {
+            return $this;
+        }
 
-        $fila = is_string($methodId) && $methodId !== '' ? $this->methodsTable->findActive($methodId) : null;
+        $fila = is_string($methodId) ? $this->methodsTable->findActive($methodId) : null;
         if ($fila === null) {
             throw new LocalizedException(
                 __('El medio de pago de Khipu elegido ya no está disponible. Recarga la página e intenta de nuevo.')
@@ -157,9 +167,19 @@ class Simplified extends AbstractMethod
 
     public function getKhipuRequest(Order $order)
     {
-        $token = substr(md5(rand()), 0, 32);
-
         $payment = $order->getPayment();
+
+        $methodId = $payment->getAdditionalInformation(self::INFO_METHOD);
+        $methodId = is_string($methodId) && $methodId !== '' ? $methodId : null;
+        $mode = $this->resolveMode($methodId);
+
+        // Doble clic, recarga o reintento: no crear un segundo cobro para el mismo pedido.
+        $existente = $this->existingPaymentResponse($order, $mode);
+        if ($existente !== null) {
+            return $existente;
+        }
+
+        $token = substr(md5(rand()), 0, 32);
         $payment->setAdditionalInformation('khipu_order_token', $token);
         $payment->save();
 
@@ -186,9 +206,6 @@ class Simplified extends AbstractMethod
             'payer_email' => $payerEmail
         ];
 
-        $methodId = $payment->getAdditionalInformation(self::INFO_METHOD);
-        $methodId = is_string($methodId) && $methodId !== '' ? $methodId : null;
-        $mode = $this->resolveMode($methodId);
         $mandatory = $this->mandatoryPaymentMethod($methodId, $mode);
         if ($mandatory !== null) {
             $paymentData['mandatory_payment_method'] = $mandatory;
@@ -205,8 +222,7 @@ class Simplified extends AbstractMethod
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($paymentData));
         curl_setopt($ch, CURLOPT_TIMEOUT, 30); // Timeout in seconds
         curl_setopt($ch, CURLOPT_FAILONERROR, true); // Fail on HTTP error
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Disable SSL peer verification
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // Disable SSL host verification
+        // Verificación TLS activa (la de curl por defecto): esta llamada lleva la API key.
 
         $response = curl_exec($ch);
         $curlError = curl_error($ch);
@@ -226,6 +242,73 @@ class Simplified extends AbstractMethod
                 $msg .= "Mensaje: " . $responseData['message'] . "\n";
             }
             return ['reason' => $msg, 'status' => false];
+        }
+    }
+
+    /**
+     * Si el pedido ya tiene un cobro en Khipu, decide qué hacer con él en vez de
+     * crear otro (un segundo cobro dejaba el primero pagable y, si el comprador
+     * pagaba ese, el webhook traía el token viejo y el pedido quedaba pendiente).
+     *
+     * - Pendiente y vigente: se reutiliza (mismo token, mismas URLs).
+     * - Ya pagado o en verificación: a la página de éxito, sin crear nada.
+     * - Vencido, borrado (Khipu responde 200 con status "deleted", que la API no
+     *   documenta) o inexistente (4xx): null, se crea otro.
+     * - Khipu no responde: error para reintentar; crear otro podría duplicar.
+     *
+     * @return array|null respuesta para el checkout, o null para crear un cobro nuevo
+     */
+    public function existingPaymentResponse(Order $order, string $mode): ?array
+    {
+        $paymentId = (string) $order->getPayment()->getAdditionalInformation('khipu_payment_id');
+        if ($paymentId === '') {
+            return null;
+        }
+
+        try {
+            $cobro = $this->refundService->getPayment($paymentId);
+        } catch (RefundException $e) {
+            if ($e->getHttpCode() >= 400 && $e->getHttpCode() < 500) {
+                return null;
+            }
+            $this->khipuLogger->warning('No se pudo consultar el cobro existente; no se crea otro', [
+                'order' => $order->getIncrementId(),
+                'payment_id' => $paymentId,
+                'http_code' => $e->getHttpCode(),
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'reason' => 'No pudimos confirmar el estado de tu pago en Khipu. Intenta nuevamente en unos segundos.',
+                'status' => false,
+            ];
+        }
+
+        if (in_array($cobro->status, ['verifying', 'done'], true)) {
+            return [
+                'status' => true,
+                'payment_url' => $this->urlBuilder->getUrl('checkout/onepage/success'),
+                'payment_id' => $paymentId,
+                'mode' => self::MODE_REDIRECT,
+            ];
+        }
+
+        if ($cobro->status !== 'pending' || $this->vencido($cobro->expires_date ?? null)) {
+            return null;
+        }
+
+        return $this->buildPaymentResponse($order, (array) $cobro, $mode);
+    }
+
+    private function vencido(?string $expiresDate): bool
+    {
+        if ($expiresDate === null || $expiresDate === '') {
+            return false;
+        }
+
+        try {
+            return new \DateTimeImmutable($expiresDate) <= new \DateTimeImmutable('now');
+        } catch (\Exception $e) {
+            return false;
         }
     }
 
@@ -268,6 +351,10 @@ class Simplified extends AbstractMethod
      */
     public function resolveMode(?string $methodId): string
     {
+        if (($methodId === null || $methodId === '') && !$this->methodsTable->isConfigured()) {
+            return $this->legacyMode();
+        }
+
         $fila = $this->activeRow($methodId);
         if ($fila === null
             || $methodId !== PaymentMethods::SIMPLIFIED_TRANSFER
@@ -305,6 +392,19 @@ class Simplified extends AbstractMethod
         }
 
         return $methodId;
+    }
+
+    /**
+     * Botón único sin tabla: respeta el switch "Pago embebido" que la tienda
+     * tenía en 2.7.x (sigue guardado aunque el campo ya no se vea en el admin).
+     */
+    private function legacyMode(): string
+    {
+        if ((string) $this->getConfigData('embedded_payment') !== '1') {
+            return self::MODE_REDIRECT;
+        }
+
+        return $this->paymentMethods->hasSimplifiedTransfer() ? self::MODE_EMBEDDED : self::MODE_REDIRECT;
     }
 
     private function activeRow(?string $methodId): ?array
