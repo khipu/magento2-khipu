@@ -1,16 +1,16 @@
 # Magento 2 Khipu Plugin
 
-khipu payment gateway Magento 2.7.0 plugin.
+khipu payment gateway Magento 2 plugin, version 2.8.0.
 
-This version is compatible with Magento 2.3 to 2.6
+Requires PHP 8.1 or later and Magento 2.4.4 or later.
 
-Tested on Magento 2.4.8.
+Tested on Magento 2.4.8 with PHP 8.3.
 
 You can sign up for khipu account at <https://khipu.com>
 
 ## Install via Composer
 
-You can install Magento 2.7.0 khipu plugin via [Composer](http://getcomposer.org/). Run the following command in your terminal:
+You can install the khipu plugin via [Composer](http://getcomposer.org/). Run the following command in your terminal:
 
 1. Go to your Magento 2 root folder.
 
@@ -38,6 +38,9 @@ You can install Magento 2.7.0 khipu plugin via [Composer](http://getcomposer.org
 
 
 ## Install via FTP
+
+> Check first that the store runs PHP 8.1 or later (`php -v`). Composer verifies it automatically; a manual copy does not, and on an older PHP the checkout stops working.
+
 1. Copia y descomprime el archivo en la carpeta de plugins de Magento
 2. Enter following commands to enable plugin:
 
