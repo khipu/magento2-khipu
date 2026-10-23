@@ -17,7 +17,7 @@ $nombre = $block->getFieldName();
             <tr>
                 <th><?= $escaper->escapeHtml(__('Medio')) ?></th>
                 <th><?= $escaper->escapeHtml(__('Activo')) ?></th>
-                <th><?= $escaper->escapeHtml(__('Título en el checkout')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Nombre del medio')) ?></th>
                 <th><?= $escaper->escapeHtml(__('Embebido')) ?></th>
             </tr>
         </thead>
@@ -76,6 +76,7 @@ $nombre = $block->getFieldName();
         <?php endforeach; ?>
         </tbody>
     </table>
+    <p class="note"><span><?= $escaper->escapeHtml(__('En el checkout cada medio se muestra como «Khipu - Nombre del medio».')) ?></span></p>
     <p class="note"><span><?= $escaper->escapeHtml(__(
         'Última consulta a Khipu: %1 · %2 medios',
         $block->getFetchedAtLocal($tabla),

@@ -40,10 +40,24 @@ class ConfigProviderTest extends TestCase
 
         $this->assertSame(
             ['payment' => ['khipu' => ['methods' => [
-                ['id' => 'SIMPLIFIED_TRANSFER', 'title' => 'Transferencia simplificada'],
-                ['id' => 'LIGOPAY', 'title' => 'QR'],
+                ['id' => 'SIMPLIFIED_TRANSFER', 'title' => 'Khipu - Transferencia simplificada'],
+                ['id' => 'LIGOPAY', 'title' => 'Khipu - QR'],
             ]]]],
             $provider->getConfig()
+        );
+    }
+
+    /** Si el comercio ya escribió "Khipu" en el nombre, no se repite. */
+    public function testNoDuplicaElPrefijoSiElNombreYaLoTrae(): void
+    {
+        $provider = $this->providerCon([
+            ['id' => 'LIGOPAY', 'active' => true, 'title' => 'khipu LigoPay', 'mode' => 'redirect'],
+            ['id' => 'REGULAR_TRANSFER', 'active' => true, 'title' => 'Khipu - Transferencia', 'mode' => 'redirect'],
+        ]);
+
+        $this->assertSame(
+            ['khipu LigoPay', 'Khipu - Transferencia'],
+            array_column($provider->getConfig()['payment']['khipu']['methods'], 'title')
         );
     }
 
