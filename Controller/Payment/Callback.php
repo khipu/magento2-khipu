@@ -65,13 +65,12 @@ class Callback extends Action implements CsrfAwareActionInterface
             return $this->resultJsonFactory->create()->setData(['error' => 'Missing signature header'])->setStatusHeader(400);
         }
 
-        $notificationData = json_decode($raw_post, true);
-
-        try {
-            $this->verifyNotification($raw_post, $signature, $secret);
-        } catch (\Exception $e) {
-            return $this->resultJsonFactory->create()->setData(['error' => $e->getMessage()])->setStatusHeader(400);
+        // Sin esto, cualquiera que conozca la URL podría marcar un pedido como pagado.
+        if (!$this->isValidSignature((string) $raw_post, (string) $signature, (string) $secret)) {
+            return $this->resultJsonFactory->create()->setData(['error' => 'Invalid signature'])->setStatusHeader(401);
         }
+
+        $notificationData = json_decode($raw_post, true);
 
         if (isset($notificationData['payment_id'])) {
             $order = $this->order->loadByIncrementId($notificationData['transaction_id']);
@@ -90,13 +89,21 @@ class Callback extends Action implements CsrfAwareActionInterface
         }
     }
 
-    private function verifyNotification($notificationData, $signatureHeader, $secret)
+    /**
+     * Cabecera X-Khipu-Signature: "t=<timestamp>,s=<firma>", con
+     * firma = base64(hmac_sha256(t + "." + cuerpo, secret)). Una cabecera mal
+     * formada es inválida (antes daba un warning y el webhook respondía 500).
+     */
+    public function isValidSignature(string $rawBody, string $signatureHeader, string $secret): bool
     {
-        $signature_parts = explode(',', $signatureHeader);
         $t_value = '';
         $s_value = '';
-        foreach ($signature_parts as $part) {
-            [$key, $value] = explode('=', $part);
+        foreach (explode(',', $signatureHeader) as $part) {
+            $kv = explode('=', $part, 2);
+            if (count($kv) !== 2) {
+                continue;
+            }
+            [$key, $value] = $kv;
             if ($key === 't') {
                 $t_value = $value;
             } elseif ($key === 's') {
@@ -104,9 +111,11 @@ class Callback extends Action implements CsrfAwareActionInterface
             }
         }
 
-        $to_hash = $t_value . '.' . $notificationData;
-        $hmac_signature = hash_hmac('sha256', $to_hash, $secret, true);
-        $hmac_base64 = base64_encode($hmac_signature);
+        if ($t_value === '' || $s_value === '' || $secret === '') {
+            return false;
+        }
+
+        $hmac_base64 = base64_encode(hash_hmac('sha256', $t_value . '.' . $rawBody, $secret, true));
 
         return hash_equals($hmac_base64, $s_value);
     }
@@ -140,17 +149,26 @@ class Callback extends Action implements CsrfAwareActionInterface
             throw new \Exception('Currency mismatch');
         }
 
+        // Khipu reintenta la notificación si no recibe el 200 a tiempo. Si este
+        // cobro ya quedó registrado (CaptureRegistrar guarda su id como
+        // last_trans_id), se responde OK sin facturar ni avisar al cliente otra vez.
+        if ((string) $order->getPayment()->getLastTransId() === (string) $notificationData['payment_id']) {
+            return;
+        }
+
         $responseTxt = 'Pago Khipu Aceptado<br>';
         $responseTxt .= 'TransactionId: ' . $notificationData['transaction_id'] . '<br>';
         $responseTxt .= 'PaymentId: ' . $notificationData['payment_id'] . '<br>';
-        $responseTxt .= 'Subject: ' . $notificationData['subject'] . '<br>';
+        // Los datos del pagador y del banco dependen del medio: un pago LigoPay no trae `bank`.
+        $responseTxt .= 'Subject: ' . ($notificationData['subject'] ?? '') . '<br>';
         $responseTxt .= 'Amount: ' . $notificationData['amount'] .' '.$notificationData['currency'] .'<br>';
-        $responseTxt .= 'Body: ' . $notificationData['body'] . '<br>';
-        $responseTxt .= 'Bank: ' . $notificationData['bank'] . '<br>';
-        $responseTxt .= 'Bank Account Number: ' . $notificationData['bank_account_number'] . '<br>';
-        $responseTxt .= 'Payer Name: ' . $notificationData['payer_name'] . '<br>';
-        $responseTxt .= 'Payer Email: ' . $notificationData['payer_email'] . '<br>';
-        $responseTxt .= 'Personal Identifier: ' . $notificationData['personal_identifier'] . '<br>';
+        $responseTxt .= 'Body: ' . ($notificationData['body'] ?? '') . '<br>';
+        $responseTxt .= 'Payment Method: ' . ($notificationData['payment_method'] ?? '') . '<br>';
+        $responseTxt .= 'Bank: ' . ($notificationData['bank'] ?? '') . '<br>';
+        $responseTxt .= 'Bank Account Number: ' . ($notificationData['bank_account_number'] ?? '') . '<br>';
+        $responseTxt .= 'Payer Name: ' . ($notificationData['payer_name'] ?? '') . '<br>';
+        $responseTxt .= 'Payer Email: ' . ($notificationData['payer_email'] ?? '') . '<br>';
+        $responseTxt .= 'Personal Identifier: ' . ($notificationData['personal_identifier'] ?? '') . '<br>';
 
         $payment = $order->getPayment();
         $invoice = $order->prepareInvoice();

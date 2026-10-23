@@ -1,0 +1,104 @@
+<?php
+/**
+ * @var \Khipu\Payment\Block\Adminhtml\System\Config\PaymentMethodsTable $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+$tabla = $block->getTabla();
+$nombre = $block->getFieldName();
+?>
+<?php if ($tabla === null): ?>
+    <p class="note"><span><?= $escaper->escapeHtml(__('Aprieta «Conectar» para traer los medios de pago de tu cuenta Khipu.')) ?></span></p>
+<?php else: ?>
+    <?php if ($block->merchantCambio($tabla)): ?>
+        <p class="message message-warning"><?= $escaper->escapeHtml(__('El Merchant_ID cambió desde la última conexión. Aprieta «Conectar» para actualizar los medios; mientras tanto Khipu no aparece en el checkout.')) ?></p>
+    <?php endif; ?>
+    <table class="admin__table-secondary" id="khipu-payment-methods">
+        <thead>
+            <tr>
+                <th><?= $escaper->escapeHtml(__('Medio')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Activo')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Nombre del medio')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Embebido')) ?></th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach ((array)$tabla['methods'] as $fila):
+            $id = (string)($fila['id'] ?? '');
+            $base = $nombre . '[rows][' . $id . ']';
+            $htmlId = 'khipu_metodo_' . preg_replace('/[^A-Za-z0-9_]/', '_', $id);
+            $activo = ($fila['active'] ?? false) === true;
+            $modo = (string)($fila['mode'] ?? 'redirect');
+            $bloqueado = $activo ? '' : ' disabled="disabled"';
+            ?>
+            <tr data-role="khipu-fila">
+                <td>
+                    <?= $escaper->escapeHtml($block->getNombreMedio($fila)) ?>
+                </td>
+                <td>
+                    <?php // El hidden siempre se envía: un checkbox apagado no viaja en el POST. ?>
+                    <input type="hidden" name="<?= $escaper->escapeHtmlAttr($base . '[active]') ?>" value="0">
+                    <div class="admin__actions-switch">
+                        <input type="checkbox" class="admin__actions-switch-checkbox" data-role="khipu-activo"
+                               id="<?= $escaper->escapeHtmlAttr($htmlId . '_activo') ?>"
+                               name="<?= $escaper->escapeHtmlAttr($base . '[active]') ?>" value="1"<?= $activo ? ' checked="checked"' : '' ?>>
+                        <label class="admin__actions-switch-label" for="<?= $escaper->escapeHtmlAttr($htmlId . '_activo') ?>">
+                            <span class="admin__actions-switch-text"
+                                  data-text-on="<?= $escaper->escapeHtmlAttr(__('Sí')) ?>"
+                                  data-text-off="<?= $escaper->escapeHtmlAttr(__('No')) ?>"></span>
+                        </label>
+                    </div>
+                </td>
+                <td>
+                    <input type="text" class="input-text" style="min-width: 16em" data-role="khipu-bloqueable"
+                           name="<?= $escaper->escapeHtmlAttr($base . '[title]') ?>"
+                           value="<?= $escaper->escapeHtmlAttr((string)($fila['title'] ?? '')) ?>"<?= $bloqueado ?>>
+                </td>
+                <td>
+                    <?php if ($id === 'SIMPLIFIED_TRANSFER'): ?>
+                        <?php // Bloqueados, ni el hidden ni el checkbox viajan y el modo guardado se conserva. ?>
+                        <input type="hidden" data-role="khipu-bloqueable"
+                               name="<?= $escaper->escapeHtmlAttr($base . '[mode]') ?>" value="redirect"<?= $bloqueado ?>>
+                        <div class="admin__actions-switch">
+                            <input type="checkbox" class="admin__actions-switch-checkbox" data-role="khipu-bloqueable"
+                                   id="<?= $escaper->escapeHtmlAttr($htmlId . '_embebido') ?>"
+                                   name="<?= $escaper->escapeHtmlAttr($base . '[mode]') ?>" value="embedded"<?= $modo === 'embedded' ? ' checked="checked"' : '' ?><?= $bloqueado ?>>
+                            <label class="admin__actions-switch-label" for="<?= $escaper->escapeHtmlAttr($htmlId . '_embebido') ?>">
+                                <span class="admin__actions-switch-text"
+                                      data-text-on="<?= $escaper->escapeHtmlAttr(__('Sí')) ?>"
+                                      data-text-off="<?= $escaper->escapeHtmlAttr(__('No')) ?>"></span>
+                            </label>
+                        </div>
+                    <?php else: ?>
+                        <span class="note"><?= $escaper->escapeHtml(__('No disponible')) ?></span>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <p class="note"><span><?= $escaper->escapeHtml(__('En el checkout cada medio se muestra como «Khipu - Nombre del medio».')) ?></span></p>
+    <p class="note"><span><?= $escaper->escapeHtml(__(
+        'Última consulta a Khipu: %1 · %2 medios',
+        $block->getFetchedAtLocal($tabla),
+        count((array)$tabla['methods'])
+    )) ?></span></p>
+    <script>
+        (function () {
+            var tabla = document.getElementById('khipu-payment-methods');
+            if (!tabla) {
+                return;
+            }
+            // Medio inactivo: su título y su switch de embebido quedan bloqueados.
+            tabla.addEventListener('change', function (evento) {
+                var activo = evento.target;
+                if (activo.getAttribute('data-role') !== 'khipu-activo') {
+                    return;
+                }
+                var fila = activo.closest('[data-role="khipu-fila"]');
+                fila.querySelectorAll('[data-role="khipu-bloqueable"]').forEach(function (campo) {
+                    campo.disabled = !activo.checked;
+                });
+            });
+        })();
+    </script>
+<?php endif; ?>

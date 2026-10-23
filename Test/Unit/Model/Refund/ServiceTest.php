@@ -361,4 +361,106 @@ class ServiceTest extends TestCase
 
         $this->service->getPaymentMethodIds('505127', 5);
     }
+
+    // ------------------------------------------------------------------
+    // getPaymentMethods()
+    // ------------------------------------------------------------------
+
+    public function testGetPaymentConsultaElCobroYDevuelveSuEstado(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn(
+            '{"payment_id":"hwfx0sgbgcbt","status":"pending","expires_date":"2026-10-23T19:09:45.354Z",'
+            . '"payment_url":"https://khipu.com/payment/info/hwfx0sgbgcbt"}'
+        );
+        $this->http->expects($this->once())->method('get')
+            ->with('https://payment-api.khipu.com/v3/payments/hwfx0sgbgcbt');
+
+        $pago = $this->service->getPayment('hwfx0sgbgcbt');
+
+        $this->assertSame('pending', $pago->status);
+        $this->assertSame('https://khipu.com/payment/info/hwfx0sgbgcbt', $pago->payment_url);
+    }
+
+    public function testGetPaymentSinEstadoEsRespuestaInvalida(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"payment_id":"hwfx0sgbgcbt"}');
+
+        $this->expectException(RefundException::class);
+        $this->service->getPayment('hwfx0sgbgcbt');
+    }
+
+    /** Khipu responde 400 ("Error de validación") a un cobro que no existe. */
+    public function testGetPaymentDeUnCobroInexistenteLanzaConElCodigo(): void
+    {
+        $this->http->method('getStatus')->willReturn(400);
+        $this->http->method('getBody')->willReturn('{"status":400,"message":"Error de validación"}');
+
+        try {
+            $this->service->getPayment('noexiste123x');
+            $this->fail('Debía lanzar');
+        } catch (RefundException $e) {
+            $this->assertSame(400, $e->getHttpCode());
+        }
+    }
+
+    public function testGetPaymentMethodsDevuelveIdNombreYLogoEnOrden(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn(
+            '{"paymentMethods":[{"id":"LIGOPAY","name":"LigoPay","logo_url":"https://x/l.png"},'
+            . '{"id":"REGULAR","name":"REGULAR","logo_url":""}]}'
+        );
+
+        $this->assertSame(
+            [
+                ['id' => 'LIGOPAY', 'name' => 'LigoPay', 'logo_url' => 'https://x/l.png'],
+                ['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => ''],
+            ],
+            $this->service->getPaymentMethods('505127', 5)
+        );
+    }
+
+    public function testGetPaymentMethodsOmiteElementosSinId(): void
+    {
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn((string) json_encode([
+            'paymentMethods' => [
+                ['name' => 'Sin id', 'logo_url' => ''],
+                ['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => ''],
+            ],
+        ]));
+
+        $this->assertSame(
+            [['id' => 'REGULAR', 'name' => 'REGULAR', 'logo_url' => '']],
+            $this->service->getPaymentMethods('505127', 5)
+        );
+    }
+
+    public function testApiKeyExplicitaReemplazaLaDeConfiguracion(): void
+    {
+        $this->http->expects($this->once())
+            ->method('setHeaders')
+            ->with($this->callback(
+                fn(array $h) => ($h['x-api-key'] ?? null) === 'key-del-form'
+            ));
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"paymentMethods":[]}');
+
+        $this->service->getPaymentMethods('505127', 10, 'key-del-form');
+    }
+
+    public function testSinApiKeyExplicitaUsaLaDeConfiguracion(): void
+    {
+        $this->http->expects($this->once())
+            ->method('setHeaders')
+            ->with($this->callback(
+                fn(array $h) => ($h['x-api-key'] ?? null) === 'LA-API-KEY'
+            ));
+        $this->http->method('getStatus')->willReturn(200);
+        $this->http->method('getBody')->willReturn('{"paymentMethods":[]}');
+
+        $this->service->getPaymentMethods('505127', 10);
+    }
 }

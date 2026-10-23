@@ -12,9 +12,6 @@
                     <label>Enabled</label>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                 </field>
-                <field id="title" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Title</label>
-                </field>
                 <field id="api_key" translate="label" type="text" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>API Key</label>
                 </field>
@@ -25,11 +22,16 @@
                 <field id="merchant_secret" translate="label" type="text" sortOrder="5" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Secret</label>
                 </field>
-                <field id="embedded_payment" translate="label" type="select" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Pago embebido</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                <field id="connect" sortOrder="6" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label></label>
+                    <frontend_model>Khipu\Payment\Block\Adminhtml\System\Config\ConnectButton</frontend_model>
                 </field>
-                <field id="payment_complete_status" translate="label" type="select" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="0">
+                <field id="payment_methods" translate="label" sortOrder="7" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Medios de pago</label>
+                    <frontend_model>Khipu\Payment\Block\Adminhtml\System\Config\PaymentMethodsTable</frontend_model>
+                    <backend_model>Khipu\Payment\Model\Config\Backend\PaymentMethodsTable</backend_model>
+                </field>
+                <field id="payment_complete_status" translate="label" type="select" sortOrder="8" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Estado del pago Exitoso</label>
                     <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
                 </field>
